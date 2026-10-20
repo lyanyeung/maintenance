@@ -82,3 +82,16 @@ tar -xzf "$SESSION/home_selected.tar.gz" -C "$HOME/home_restore_review"
 - 即使 Slurm 队列未出现文件路径，也不能排除 cron、手动 shell、外部工作流的引用。自动清理前应检查这些潜在依赖。
 - 不运行 `scancel`、`rm -rf` 或任何 Scratch/CIME 删除逻辑。只对筛选过的单个 Home 普通文件使用 unlink。
 - 本仓库**不包含**用户真实归档或清理执行结果；本次 GitHub 提交不代表 IRIDIS 文件已经移动或删除。
+
+## FLUXNET 原始数据审核和 DD/MM/YY 清理（独立工具）
+
+[完整操作说明](docs/FLUXNET_RAW_CLEANUP.md) · [Python 脚本](scripts/fluxnet_raw_cleanup.py)
+
+不需要在 IRIDIS6 克隆仓库、保存脚本或生成报告。直接通过 GitHub 流式执行只读审计：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lyanyeung/maintenance/main/scripts/fluxnet_raw_cleanup.py | python3 -B - --details summary
+```
+
+审计会统计同一原始 release 目录中的 HH / BIF / DD / MM / YY CSV 与原始 ZIP。默认仅向终端打印结果，不创建任何文件或删除数据。删除需要显式的 `--apply --confirm DELETE_DD_MM_YY`，且仅作用于有同名 HH 对应文件的 DD/MM/YY。**ZIP 不会被删除**，DATM、CIME case、restart、模型历史 NC 均不触碰。操作前应确认官方聚合产品的归档需要，以及数据有独立备份。
+
