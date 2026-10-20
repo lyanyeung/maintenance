@@ -1,0 +1,19 @@
+# Never publish research data, local inventories or HPC archival receipts
+*.tar
+*.tar.gz
+*.zip
+*.nc
+*.nc4
+*.log
+*.out
+*.err
+*.csv
+*.tsv
+*.manifest.json
+*.partial
+SHA256SUMS
+cleanup_actions.tsv
+__pycache__/
+.env
+*.pem
+*.key
