@@ -1,97 +1,96 @@
 # IRIDIS6 maintenance — Home archiving and safe cleanup
 
-本仓库管理 IRIDIS6 Home 目录维护的可复用脚本。**GitHub 只保存维护代码和说明；研究数据、模型输出、日志、归档包和校验清单必须存放在 Southampton Research Filestore，不得提交到公开仓库。**
+This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
-## 已实现的功能
+## Implemented features
 
-- **`audit`（只读）**：分类检查 Home 顶层非隐藏文件；列出旧日志、Slurm 预览、历史压缩包及未清理的项目目录。
-- **`backup`（备份）**：直接写入 `/research/xclimatetbm/ly3n24/Home_Declutter/`，按 UTC 时间创建 `home_snapshot_YYYYMMDDTHHMMSSZ/`，生成 `home_selected.tar.gz`、`manifest.json` 和 `SHA256SUMS`；逐文件 SHA-256 校验压缩包，再对比源文件，源文件变化即中止，不清理。
-- **`verify`（只读）**：再次校验完整归档的 SHA-256 与每个 TAR 成员。
-- **`clean`（有条件清理）**：明确授权后，只考虑已完整归档并逐文件校验、至少 **48 小时**未修改的 Home 根目录普通文件：`*.log`、`*.out`、`*.err`、`*.bak`、`*.zip`、`*_preview_run.txt` 和 `*.before_*`。再次核对哈希和 mtime，并检查 Slurm 作业是否明确引用。将逐项结果写入归档 session 的 `cleanup_actions.tsv`。默认不删除任何目录、Python/Shell 源代码、CSV 或 Git 项目。
-- **保护活跃目录**：例如 `CARDAMOM`、`CLM-FATES-single-site-workflows`、`FLUXNET_MultiSite_11`、`CLM_FATES_13_checkpoint`、`TCCAS-workflows` 和此 `maintenance` 仓库等。隐藏目录（`.ssh`、`.conda`、`.git` 等）完全跳过。
-- **挂载检查**：先确认 Research Filestore 为 NFS，不会意外把归档写到未挂载的本地路径。符合 IRIDIS6 Python 3.9。
+- **`audit` (read-only):** Classifies non-hidden files at the top level of Home and lists old logs, Slurm previews, historical archives, and project directories that have not been cleaned up.
+- **`backup` (backup):** Writes directly to `/research/xclimatetbm/ly3n24/Home_Declutter/`. Creates a UTC-stamped `home_snapshot_YYYYMMDDTHHMMSSZ/` directory containing `home_selected.tar.gz`, `manifest.json`, and `SHA256SUMS`. Verifies every archived file with SHA-256 and compares it against its source. Stops without cleaning anything if a source file has changed.
+- **`verify` (read-only):** Rechecks the full archive's SHA-256 checksums and each TAR member.
+- **`clean` (conditional cleanup):** With explicit authorization, considers only regular files at the top level of Home that have been fully archived, verified file by file, and not modified for at least **48 hours**: `*.log`, `*.out`, `*.err`, `*.bak`, `*.zip`, `*_preview_run.txt`, and `*.before_*`. Rechecks hashes and modification times and looks for explicit references in Slurm jobs. Records each action in the archive session's `cleanup_actions.tsv`. By default, never deletes directories, Python/Shell source files, CSV files, or Git projects.
+- **Protected active directories:** Examples include `CARDAMOM`, `CLM-FATES-single-site-workflows`, `FLUXNET_MultiSite_11`, `CLM_FATES_13_checkpoint`, `TCCAS-workflows`, and this `maintenance` repository. Hidden directories such as `.ssh`, `.conda`, and `.git` are skipped entirely.
+- **Mount verification:** Confirms that the Research Filestore is mounted as NFS before writing any archive, preventing accidental writes to an unmounted local path. Compatible with IRIDIS6 Python 3.9.
 
-## 在 IRIDIS6 上运行
+## Running on IRIDIS6
 
 ```bash
 cd "$HOME"
 git clone https://github.com/lyanyeung/maintenance.git maintenance
 cd "$HOME/maintenance"
 
-# 1. 查看文件分类，不修改
+# 1. Inspect and classify files without making changes
 python3 scripts/archive_home.py audit
 
-# 2. 完整备份，不删除
+# 2. Create and verify a complete backup without deleting files
 python3 scripts/archive_home.py backup
 ```
 
-备份成功后会打印 `VERIFIED_BACKUP <SESSION>` 和下一步完整的 `clean` 命令。**只有看到 `VERIFIED_BACKUP` 才继续**，且先查看将清理的文件是否被其他项目手动引用：
+A successful backup prints `VERIFIED_BACKUP <SESSION>` and the complete `clean` command for the next step. **Proceed only after seeing `VERIFIED_BACKUP`.** First review whether other projects manually reference any files selected for cleanup:
 
 ```bash
-# 3. 将 <SESSION> 替换为上一步真实输出，先单独复核
+# 3. Replace <SESSION> with the actual path printed above; verify separately
 python3 scripts/archive_home.py verify --session "<SESSION>"
 
-# 4. 经过审查后执行有条件清理
+# 4. Perform conditional cleanup only after reviewing the selection
 python3 scripts/archive_home.py clean --session "<SESSION>" \
   --confirm DELETE_OLD_VERIFIED_FILES
 
-# 5. 查看清理记录与配额
+# 5. Inspect the cleanup record and quota
 cat "<SESSION>/cleanup_actions.tsv"
 myfiles
 ```
 
-如已有同名 clone，则先 `cd "$HOME/maintenance" && git pull --ff-only`，不要重复 `git clone`。
+If the repository is already cloned, run `cd "$HOME/maintenance" && git pull --ff-only` instead of cloning it again.
 
-**一键执行“备份+验证”而不删除：**
+**One-command backup and verification, with no deletion:**
 
 ```bash
 bash scripts/run_home_maintenance.sh
 ```
 
-清理是一个独立的明确授权步骤；不支持跳过校验直接删除。
+Cleanup is a separate step requiring explicit authorization. Deletion without verification is not supported.
 
-## 恢复归档
+## Restoring an archive
 
-先将压缩包解压到**全新的审查目录**，不要覆盖现有 Home：
+First extract the archive into a **new review directory**; do not overwrite the existing Home directory:
 
 ```bash
-SESSION="/research/xclimatetbm/ly3n24/Home_Declutter/home_snapshot_实际时间"
+SESSION="/research/xclimatetbm/ly3n24/Home_Declutter/home_snapshot_<ACTUAL_TIMESTAMP>"
 mkdir -p "$HOME/home_restore_review"
 tar -xzf "$SESSION/home_selected.tar.gz" -C "$HOME/home_restore_review"
-# 提取路径：$HOME/home_restore_review/home/
+# Extracted files: $HOME/home_restore_review/home/
 ```
 
-注意：`home_restore_review` 这样的审查目录如果位于 Home 且再次运行 `backup`，会成为下一次归档候选；完成检查后请手动处理，不要让归档反复嵌套。
+Note: If a review directory such as `home_restore_review` is created inside Home, it can become a candidate for the next `backup` run. Review and remove or relocate it manually when finished to avoid repeatedly nesting archives.
 
-## 归档目录与清理范围
+## Archive destinations and cleanup scope
 
-| 路径 | 作用 | 是否自动删除 |
+| Path | Purpose | Automatically deleted? |
 |---|---|---|
-| `/iridisfs/home/ly3n24` 顶层旧日志等 | 主要整理目标 | 仅 `clean` 且通过全部检查 |
-| `/research/xclimatetbm/ly3n24/Home_Declutter/` | 研究备份目的地 | 否 |
-| `/scratch/ly3n24/CTSM_FATES_OUTPUTS/` | 活跃 CLM-FATES 模型 | **绝不触碰** |
-| `/iridisfs/scratch/ly3n24/CLM_FATES/cases/` | 活跃 CIME cases | **绝不触碰** |
-| GitHub `maintenance` | 本维护工具源码 | 否 |
+| Old top-level logs and similar files in `/iridisfs/home/ly3n24` | Primary cleanup target | Only by `clean`, after all checks pass |
+| `/research/xclimatetbm/ly3n24/Home_Declutter/` | Research backup destination | No |
+| `/scratch/ly3n24/CTSM_FATES_OUTPUTS/` | Active CLM-FATES model outputs | **Never touched** |
+| `/iridisfs/scratch/ly3n24/CLM_FATES/cases/` | Active CIME cases | **Never touched** |
+| GitHub `maintenance` | Maintenance-tool source code | No |
 
-**关键区别：本仓库目前仅整理 Home，不释放 Scratch inode。** 用户最近的 Scratch 文件数约 56 万/61.44 万，释放 Scratch 配额需另行制定按站点 checkpoint 与归档核验的专用流程，不得对正在运行的 CLM-FATES 文件夹执行批量删除。
+**Important distinction: The Home maintenance workflow described above does not free Scratch inodes.** At the time this workflow was documented, Scratch had approximately 560,000 files against a quota of 614,400. Reclaiming Scratch quota requires a separate, site-specific process that preserves checkpoints and verifies archives. Never mass-delete directories belonging to running CLM-FATES simulations.
 
-## 安全边界
+## Safety boundaries
 
-- 不把“GitHub 上有同名脚本”等同于“IRIDIS 本地文件可删”。未逐字节比对 GitHub 版本的 `.py`/`.sh` 一律保留。
-- 不能凭未完成的 `backup`、`ls` 或 `df -i` 声称数据安全迁移；以日志的 `VERIFIED_BACKUP`、`VERIFIED_SESSION` 和校验收据为准。
-- 即使 Slurm 队列未出现文件路径，也不能排除 cron、手动 shell、外部工作流的引用。自动清理前应检查这些潜在依赖。
-- 不运行 `scancel`、`rm -rf` 或任何 Scratch/CIME 删除逻辑。只对筛选过的单个 Home 普通文件使用 unlink。
-- 本仓库**不包含**用户真实归档或清理执行结果；本次 GitHub 提交不代表 IRIDIS 文件已经移动或删除。
+- Having a script with the same name on GitHub does **not** mean its IRIDIS copy is safe to delete. Preserve any local `.py` or `.sh` file that has not been compared byte for byte with the GitHub version.
+- An incomplete `backup`, `ls`, or `df -i` is not proof of a safe transfer. Rely on `VERIFIED_BACKUP`, `VERIFIED_SESSION`, and verification receipts.
+- The absence of a file path from the Slurm queue does not rule out references from cron, interactive shells, or external workflows. Check these dependencies before automated cleanup.
+- The Home cleanup workflow does not run `scancel`, `rm -rf`, or any Scratch/CIME deletion logic. It unlinks only individually selected regular files in Home.
+- This repository **does not contain** actual user archives or records proving cleanup was executed. Publishing a GitHub commit does not imply that files on IRIDIS were moved or deleted.
 
-## FLUXNET 原始数据审核和 DD/MM/YY 清理（独立工具）
+## FLUXNET raw-data audit and DD/MM/YY cleanup (separate tool)
 
-[完整操作说明](docs/FLUXNET_RAW_CLEANUP.md) · [Python 脚本](scripts/fluxnet_raw_cleanup.py)
+[Full instructions](docs/FLUXNET_RAW_CLEANUP.md) · [Python script](scripts/fluxnet_raw_cleanup.py)
 
-不需要在 IRIDIS6 克隆仓库、保存脚本或生成报告。直接通过 GitHub 流式执行只读审计：
+There is no need to clone the repository on IRIDIS6, save a script, or generate a report. Run the read-only audit directly from GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lyanyeung/maintenance/main/scripts/fluxnet_raw_cleanup.py | python3 -B - --details summary
 ```
 
-审计会统计同一原始 release 目录中的 HH / BIF / DD / MM / YY CSV 与原始 ZIP。默认仅向终端打印结果，不创建任何文件或删除数据。删除需要显式的 `--apply --confirm DELETE_DD_MM_YY`，且仅作用于有同名 HH 对应文件的 DD/MM/YY。**ZIP 不会被删除**，DATM、CIME case、restart、模型历史 NC 均不触碰。操作前应确认官方聚合产品的归档需要，以及数据有独立备份。
-
+The audit counts HH / BIF / DD / MM / YY CSV files and the original ZIP files in each raw release directory. By default, it prints results to the terminal only; it creates no files and deletes no data. Deletion requires explicit `--apply --confirm DELETE_DD_MM_YY` and applies only to DD/MM/YY files with a corresponding HH file of the same name stem. **ZIP files are never deleted.** DATM files, CIME cases, restarts, and model history NetCDF files are untouched. Before deletion, confirm any requirements to retain official aggregated products and ensure an independent backup exists.
