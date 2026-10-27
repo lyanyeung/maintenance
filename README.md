@@ -2,25 +2,27 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
-## Scratch: unused surface ERA caches and old logs (27 October 2026)
+## Scratch: ERA5 cleanup keeps AmeriFlux Batch03 and Batch05
 
 [Runbook](docs/SCRATCH_CACHE_LOG_CLEANUP.md) · [Python script](scripts/scratch_cache_log_cleanup.py)
 
-The separate Scratch tool inventories unused ERA meteorological caches under
-site `subset_data/` directories and old logs in explicitly bounded locations.
-It requires a configured site surface before considering its ERA cache, retains
-files referenced by configuration/source/receipt metadata, and skips related
-queued/running jobs. Original forcing, downloaded repair evidence (including
-ongoing AmeriFlux Batch03), model history/restarts and Git remain protected.
+The explicit 27 October 2026 operator policy is: **retain AmeriFlux Batch03 and
+Batch05 ERA5 / ERA5-Land and shared dependencies; archive and remove other
+batches' ERA source downloads and caches.** The code embeds the exact twenty
+protected station IDs from the two site manifests, protects both experiment
+trees and follows detected shared references/symlinks. Current runtime inputs
+and queued/running jobs remain protected. Old-log minimum age is seven days;
+other ERA source cleanup has no age or surface-confirmation gate.
 
-Run the downloaded, commit-pinned script with `audit` first. The explicitly
-requested `clean --confirm ARCHIVE_VERIFY_CLEAN_OLD_CACHE_LOGS` command archives
-eligible files onto the mounted Research Filestore, verifies each archived
-member against SHA256, rechecks dependencies and then removes unchanged
-originals. Default minimum age is seven days. No archive or report is created
-by `audit`. See the runbook for exact scope, restore instructions and limits
-of literal-reference scanning. The code is published; no IRIDIS cleanup result
-is claimed by this repository update.
+The new command is
+`clean --confirm ARCHIVE_VERIFY_CLEAN_ERA_EXCEPT_AMF03_05_AND_OLD_LOGS`.
+It archives eligible files onto the mounted Research Filestore, verifies every
+member against SHA256, rechecks dependencies and removes unchanged originals.
+Audit mode is read-only. Original EC observations/mixed packages, derived
+forcing, scientific receipts, surfaces, histories/restarts and Git are retained.
+See the runbook for bounded discovery, restoration and reference-scan limits.
+Use the v2 pinned download; the earlier v1 pinned command retains its old policy.
+No IRIDIS cleanup result is claimed by this repository update.
 
 ## Implemented features
 

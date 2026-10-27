@@ -63,27 +63,107 @@ class CleanupTests(unittest.TestCase):
         self.assertTrue(self.row(self.cache)['eligible'])
         self.assertTrue(self.row(self.log)['eligible'])
 
-    def test_missing_configured_surface_keeps_cache(self):
+    def test_other_batch_cache_needs_no_surface_gate(self):
         self.config.unlink()
-        self.assertFalse(self.row(self.cache)['eligible'])
+        self.assertTrue(self.row(self.cache)['eligible'])
 
-    def test_invalid_netcdf_surface_keeps_cache(self):
+    def test_surface_is_never_modified_or_used_as_deletion_authority(self):
         self.surf.write_bytes(b'not a netcdf file')
-        self.assertFalse(self.row(self.cache)['eligible'])
+        self.assertTrue(self.row(self.cache)['eligible'])
+        self.assertNotIn(str(self.surf), {r['path'] for r in self.audit()})
 
     def test_recent_logs_kept(self):
         os.utime(self.log, None)
         self.assertFalse(self.row(self.log)['eligible'])
 
-    def test_original_forcing_external_evidence_model_data_never_candidates(self):
-        for rel in ('CLM_FATES/sites/MY_EC_SITE/US-Test/forcing/raw/ERA5.nc',
-                    'CLM_FATES/experiments/AmeriFlux_MultiSite_10_Batch03/external_evidence/ERA5.nc',
+    def test_observations_derived_forcing_model_data_never_candidates(self):
+        for rel in ('CLM_FATES/sites/MY_EC_SITE/US-Test/forcing/raw/AMF_US-Test_FLUXMET_HH.csv',
+                    'CLM_FATES/sites/MY_EC_SITE/US-Test/forcing/processed/ERA5_selected_forcing.nc',
+                    'CLM_FATES/experiments/OtherBatch/science_trials/ERA5_trial.nc',
                     'CTSM_FATES_OUTPUTS/US-Test_CASE/run/cesm.log',
                     'CTSM_FATES_OUTPUTS/archive/US-Test_CASE/rest/2001/restart.nc',
                     'CLM_FATES/cases/US-Test_CASE/.git/objects/aa/object.log'):
             self.write(self.scratch / rel, b'protected')
         paths = {r['path'] for r in self.audit()}
         self.assertEqual(paths, {str(self.cache), str(self.log)})
+
+    def test_all_twenty_manifest_sites_explicitly_protected(self):
+        self.assertEqual(len(C.PROTECTED_SITES), 20)
+        for site in C.PROTECTED_SITES:
+            path = self.write(self.scratch / ('CLM_FATES/sites/MY_EC_SITE/' + site + '/forcing/raw/AMF_' + site + '_FLUXNET_ERA5_HH.csv'), b'ERA')
+            row = self.row(path)
+            self.assertFalse(row['eligible'], site)
+            self.assertIn('KEEP_AMERIFLUX_BATCH03_OR_BATCH05', row['reasons'])
+
+    def test_both_batch_evidence_folders_protected_even_without_site_in_filename(self):
+        for batch in ('AmeriFlux_MultiSite_10_Batch03', 'AmeriFlux_MultiSite_10_Batch05',
+                      'AmeriFlux_Batch03_10', 'AmeriFlux_Batch05_10'):
+            path = self.write(self.scratch / ('CLM_FATES/experiments/' + batch + '/external_evidence/era5land/result.nc'), b'ERA')
+            self.assertFalse(self.row(path)['eligible'])
+
+    def test_other_era_sources_eligible_but_receipts_and_mixed_packages_retained(self):
+        root = self.scratch / 'CLM_FATES/experiments/AmeriFlux_MultiSite_10_Batch04/external_evidence/era5land'
+        payloads = [self.write(root / name, b'ERA') for name in ('result.nc', 'timeseries.json', 'source.zip', 'hourly.csv')]
+        protected = [self.write(root / name, b'keep') for name in ('receipt.json', 'request.json', 'source_SHA.json',
+                     'AMF_US-Test_FLUXNET_2000-2020.zip', 'AMF_US-Test_FLUXMET_HH.csv')]
+        rows = {r['path']: r for r in self.audit()}
+        for path in payloads:
+            self.assertTrue(rows[str(path)]['eligible'])
+        for path in protected:
+            self.assertNotIn(str(path), rows)
+
+    def test_other_standalone_era5_companion_can_be_removed(self):
+        path = self.write(self.site / 'forcing/raw/release/AMF_US-Test_FLUXNET_ERA5_HH_2000-2020.csv', b'ERA')
+        self.assertTrue(self.row(path)['eligible'])
+
+    def test_era_age_gate_removed_but_log_retention_remains(self):
+        os.utime(self.cache, None)
+        os.utime(self.log, None)
+        self.assertTrue(self.row(self.cache)['eligible'])
+        self.assertFalse(self.row(self.log)['eligible'])
+
+    def test_historical_other_batch_receipt_does_not_block_authorised_era_removal(self):
+        self.write(self.scratch / 'CLM_FATES/experiments/OtherBatch/old_receipt.json', str(self.cache).encode())
+        row = self.row(self.cache)
+        self.assertTrue(row['eligible'])
+        self.assertIsNotNone(row['historical_reference_restore_if_needed'])
+
+    def test_cross_batch_shared_era_referenced_from_protected_batch_kept(self):
+        self.write(self.scratch / 'CLM_FATES/experiments/AmeriFlux_MultiSite_10_Batch03/receipt.json', str(self.cache).encode())
+        self.assertFalse(self.row(self.cache)['eligible'])
+
+    def test_transitive_shared_dependency_from_protected_receipt_kept(self):
+        shared = self.write(self.scratch / 'CLM_FATES/experiments/OtherBatch/shared_receipt.json', str(self.cache).encode())
+        self.write(self.scratch / 'CLM_FATES/experiments/AmeriFlux_MultiSite_10_Batch05/receipt.json', str(shared).encode())
+        self.assertFalse(self.row(self.cache)['eligible'])
+
+    def test_missing_referenced_metadata_does_not_break_protection_audit(self):
+        self.write(self.scratch / 'CLM_FATES/experiments/AmeriFlux_MultiSite_10_Batch05/receipt.json',
+                   b'{"old_receipt":"/nonexistent/prior_receipt.json"}')
+        self.assertTrue(self.row(self.cache)['eligible'])
+
+    def test_protected_batch_symlink_to_other_batch_cache_kept(self):
+        link = self.scratch / 'CLM_FATES/sites/MY_EC_SITE/US-Me6/forcing/raw/shared'
+        link.parent.mkdir(parents=True)
+        link.symlink_to(self.cache.parent, target_is_directory=True)
+        self.assertFalse(self.row(self.cache)['eligible'])
+
+    def test_protected_site_in_other_cache_filename_kept(self):
+        path = self.write(self.scratch / 'CLM_FATES/experiments/OtherBatch/external_evidence/ERA5_US-Wkg.nc', b'ERA')
+        self.assertFalse(self.row(path)['eligible'])
+
+    def test_same_basename_is_not_proof_of_cross_batch_sharing(self):
+        keep = self.write(self.scratch / 'CLM_FATES/experiments/AmeriFlux_MultiSite_10_Batch05/external_evidence/era5land/result.nc', b'keep')
+        other = self.write(self.scratch / 'CLM_FATES/experiments/OtherBatch/external_evidence/era5land/result.nc', b'other')
+        self.write(keep.parent / 'receipt.json', ('{"source":"' + str(keep) + '","result.nc":"sha"}').encode())
+        self.assertFalse(self.row(keep)['eligible'])
+        self.assertTrue(self.row(other)['eligible'])
+
+    def test_legacy_v1_archives_remain_verifiable(self):
+        session, doc = self.archive([self.row(self.log)])
+        doc['version'] = '20261027-v1'
+        (session / 'manifest.json').write_text(json.dumps(doc))
+        self.assertEqual(C.verify_session(session)['version'], '20261027-v1')
 
     def test_surface_and_domain_files_never_candidates(self):
         self.write(self.subset / 'ERA5/domain.nc', b'CDFdomain')

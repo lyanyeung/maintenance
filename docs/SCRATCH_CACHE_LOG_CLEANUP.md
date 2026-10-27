@@ -1,101 +1,134 @@
-# Scratch surface ERA cache and old log cleanup
+# ERA5 cleanup: keep AmeriFlux Batch03 and Batch05
 
-`scripts/scratch_cache_log_cleanup.py` is a separate workflow from Home backup
-and FLUXNET DD/MM/YY cleanup. It needs Python 3.9+ standard library, `squeue`,
-`scontrol` and `findmnt`. No Conda activation, model submission, or Git pull is
-required. It does not connect to IRIDIS remotely; run it there as `ly3n24`.
+The operator's explicit 27 October 2026 policy supersedes the initial
+surface-cache-only policy: **retain AmeriFlux Batch03 and Batch05 ERA5 /
+ERA5-Land sources and shared dependencies; other batches' ERA5 sources and
+caches may be archived and removed.** Old-log retention remains seven days.
 
-## Scope
+`scripts/scratch_cache_log_cleanup.py` v2 requires Python 3.9+ standard library,
+`squeue`, `scontrol` and `findmnt`. Run on IRIDIS6 as `ly3n24`; no Conda
+activation, model submission or Git pull is required.
 
-The operator's 27 October 2026 snapshot showed Scratch at **846/2000 GB** and
-**1,011,142/1,228,800 files**, leaving **217,658 file slots**. These are
-user-reported historical values, not live telemetry or a cleanup result.
+## Explicit retention list
+
+| Protected campaign | All ten protected station IDs |
+| --- | --- |
+| AmeriFlux Batch03 | US-Kon, US-Me2, US-Me6, US-MMS, US-MOz, US-Mpj, US-MtB, US-NC2, US-NR1, US-NR3 |
+| AmeriFlux Batch05 | US-UiD, US-UMB, US-UMd, US-Var, US-Vcm, US-Vcp, US-WCr, US-Whs, US-Wjs, US-Wkg |
+
+These lists were verified against the workflow repository's site manifests:
+[Batch03](https://github.com/lyanyeung/CLM-FATES-single-site-workflows/blob/main/examples/AmeriFlux_MultiSite_10_Batch03/sites.tsv)
+(Git blob `10cfac044cfe8d01d7a8033c3292cb3c2ee3e5c1`) and
+[Batch05](https://github.com/lyanyeung/CLM-FATES-single-site-workflows/blob/main/examples/AmeriFlux_MultiSite_10_Batch05/sites.tsv)
+(Git blob `27f138fdb1dd91c3d8ef8e4b70bb5f833643f9c3`).
+The five AmeriFlux site manifests have no overlapping station IDs. Physical
+file sharing can still occur, so retaining station folders alone is insufficient.
+
+Protection covers ERA files in either batch's experiment tree, any of these
+station folders, and ERA filenames containing their station IDs. Alternate
+`AmeriFlux_Batch03_10` / `AmeriFlux_Batch05_10` names and corresponding Home
+script directory names are recognised. Case is ignored for retention matching.
+ERA files elsewhere are retained if referenced by these batches' source or
+receipt metadata, including literal transitive receipt links, or reached through
+their symlinks. Hard-linked files are excluded from cleanup.
+
+## What the v2 policy changes
 
 | File group | Treatment |
 | --- | --- |
-| ERA5/ERA5-Land/ERA-Interim `.nc`, `.nc4`, `.grib`, `.grb`, `.grb2` files under a site's `subset_data/` | Candidate only when at least seven days old, that site's configured `fsurdat` exists with a NetCDF/HDF header, no detected configuration/source/receipt reference, and no related queued/running job |
-| `*.log`, `*.log.*`, `*.out`, `*.err` and gzip variants | Candidate only when at least seven days old and unreferenced/inactive, in the explicit locations below |
-| Site original `forcing/`, raw packages, companion ERA HH CSV, processed forcing and all `experiments/` files, including downloaded external evidence | Always retained; scanned metadata is read-only |
-| Surface/domain/mesh/PFT/soil/land-use data, CIME XML/namelists, `CaseStatus`, scientific receipts, source code, Git, active model run/build directories, model history and restarts | Never deletion candidates |
+| Batch03 / Batch05 ERA5 and ERA5-Land, plus detected shared dependencies | Keep unconditionally, regardless of age or surface status |
+| Other batches' ERA5 / ERA5-Land source downloads, unused surface meteorological caches and standalone original ERA5 HH companions | Archive, verify and remove unless protected by runtime/queued-job dependencies |
+| A historical receipt from another batch referring to its ERA source | Receipt stays; its reference alone no longer blocks authorised source cleanup |
+| Old logs in explicitly bounded locations | Seven-day minimum age, no related queued/running job and no detected metadata reference |
+| Mixed EC packages, FULLSET/FLUXMET/FLUXES observations, BIF, derived forcing, scientific receipts, surface/domain/mesh/PFT data, model outputs/restarts and Git | Never deletion candidates |
 
-Old-log locations: Home top level; the immediate contents of Home directories
-starting `ameriflux_`, `AmeriFlux_`, `Batch`, `CLM_FATES_maintenance`; site top level
-and `subset_data`; case top level and `logs/`; and
-`CTSM_FATES_OUTPUTS/archive/<case>/logs/`. No recursive deletion of arbitrary
-project directories and no removal of empty directories is performed.
+There is **no surface-confirmation or seven-day age requirement for other
+batches' ERA source data**. Surface creation is not used to infer whether
+meteorological sources are expendable; the operator has now specified the
+batch retention rule directly. ERA-Interim is outside this ERA5-specific policy.
 
-**A surface file is not evidence that meteorological repair is complete.** In
-particular, AmeriFlux Batch03's source ERA5/ERA5-Land evidence remains protected,
-including the US-Me6 and US-MOz work. Configured `fsurdat` is a structural
-prerequisite for considering an unused **surface-generated meteorological
-cache**; it is not a scientific PFT/surface approval or a forcing-readiness gate.
-If no qualifying cache exists, the ERA candidate count is zero. There is no
-fallback that broadens deletion into original forcing or `external_evidence`.
+## Discovery boundaries
 
-## Audit and cleanup
+The tool inventories ERA-labelled payloads (`.nc`, `.nc4`, `.grib`, `.grb`,
+`.grb2`, `.zip`, `.csv`, `.json`) in these locations:
 
-Download the script from a **specific verified commit**, as supplied in the
-handoff command, and verify its SHA256. With `SCRIPT` set to that file:
+- Site `subset_data/`, site top level, site ERA-labelled directories, and
+  `forcing/raw*/`, `forcing/cache/`, `forcing/external_evidence/` or
+  `forcing/ERA5*/`.
+- Experiment `external_evidence/`, `external_data/`, `cache/`, `cds/` and
+  ERA-labelled source directories. Selected/final forcing, DATM, reports and
+  science trials are excluded.
+- Non-hidden ERA-labelled Home directories.
+
+Payload names or an ancestor within the source store must identify ERA5 /
+ERA5-Land. Receipts, manifests, requests, hashes and other scientific bookkeeping
+are retained. Original packages that combine EC observations with ERA fields
+are retained as a whole. This is a bounded discovery policy, not a filesystem-wide
+wildcard deletion; an unknown source location is not silently guessed.
+
+Old-log locations: Home top level; immediate contents of Home directories
+starting `ameriflux_`, `AmeriFlux_`, `Batch`, `CLM_FATES_maintenance`; site
+top level and `subset_data`; case top level and `logs/`; and
+`CTSM_FATES_OUTPUTS/archive/<case>/logs/`. No arbitrary recursive project
+deletion, model run/build cleanup, Git packing or empty-directory removal occurs.
+
+## Run
+
+Use the downloaded script from the **v2 commit and SHA256 supplied in the
+handoff**. The original v1 pinned command still downloads v1 and must not be used
+for the new policy.
 
 ```bash
-# Read-only inventory; no reports or archives are written.
+# Read-only; no files created or removed.
 python3 -B "$SCRIPT" audit
 
-# Include the retention reason for every discovered file.
+# Include every retention reason.
 python3 -B "$SCRIPT" audit --details
 
-# Archive eligible files, verify, recheck dependencies and remove unchanged originals.
-python3 -B "$SCRIPT" clean --confirm ARCHIVE_VERIFY_CLEAN_OLD_CACHE_LOGS
+# Archive, verify and clean under the explicit batch policy.
+python3 -B "$SCRIPT" clean --confirm ARCHIVE_VERIFY_CLEAN_ERA_EXCEPT_AMF03_05_AND_OLD_LOGS
 myfiles
 ```
 
-`--min-days 14` increases retention. Values below seven days are rejected.
-Any unresolved Slurm query error stops the operation instead of interpreting
-an unavailable queue as an idle system. Full job metadata protects pending as
-well as running jobs, their working directories and stdout/stderr. Related
-case and site paths are excluded. No job is cancelled or altered.
+The audit prints
+`ERA_POLICY=KEEP_AMF_BATCH03_BATCH05_AND_SHARED_DEPENDENCIES` and reports
+`KEEP_AMERIFLUX_BATCH03_OR_BATCH05` for protected ERA files. `--min-days 14`
+increases **log** retention; it does not postpone other authorised ERA cleanup.
+No job is submitted, cancelled or modified. Full queued/running-job metadata
+and model stream/namelist references remain additional protections.
 
-The reference scan reads source/configuration/receipt metadata under CIME
-cases, experiments, sites, the two source repositories and selected Home script
-directories. It checks exact paths, relative basenames and ERA stream directory
-references. Large metadata files stream in chunks. Reports list why a file is
-kept. **Literal-reference scanning cannot prove the absence of every future or
-dynamically constructed reader.** This is why source/evidence zones are excluded
-and every eligible file must have a verified, restorable backup before removal.
+## Backup, verification and restoration
 
-## Backup verification and receipts
+The effective backup destination must be mounted as NFS:
+`/research/xclimatetbm/ly3n24/Scratch_Declutter/`.
+An unavailable mount stops cleanup. A lock prevents simultaneous maintenance runs.
 
-Clean mode first requires the effective destination to be mounted as NFS:
+Every session contains a compressed TAR, `manifest.json` and an append-only
+`cleanup_actions.jsonl`. Every archived member and the TAR itself receive
+SHA256 verification. Changed files cause a stop or are retained. Dependencies
+and queue state are checked again after backup and before deletion; the queue
+also refreshes during deletion. Symlinks, symlink ancestors, hard links and
+foreign-owned files are not deleted. These private data and receipts never go
+to GitHub.
 
-`/research/xclimatetbm/ly3n24/Scratch_Declutter/`
+Literal reference scanning is conservative but cannot prove the absence of
+every dynamically constructed or future reader. Historical analyses of **other**
+batches that need deleted ERA sources must first restore those sources from
+the verified archive; retained receipts continue to document original hashes.
 
-If the mount is unavailable or not NFS, no cleanup occurs. A maintenance lock
-prevents simultaneous runs. Each UTC-stamped session contains a compressed TAR,
-`manifest.json` and an append-only `cleanup_actions.jsonl`. Research data and
-these private manifests are never uploaded to GitHub.
+`VERIFIED_BACKUP <path>` reports completed verification.
+`CLEAN_COMPLETE removed_files=...` reports actual removed originals.
+Only `myfiles` establishes the resulting quota usage. Publication and local
+tests do not establish that IRIDIS cleanup ran. The operator's earlier snapshot
+was 846/2000 GB and 1,011,142/1,228,800 files (217,658 file slots remaining).
 
-Each source's identity, size and nanosecond modification/change times are
-recorded; every archived member is verified against its source SHA256. The TAR
-also receives a SHA256. Files changed while being archived cause a stop before
-deletion. A fresh dependency/Slurm audit runs after backup, and the archive is
-verified again before unlinking. New references, new jobs and changed sources
-are retained. The queue refreshes during deletion as well. Symlinks, symlink
-ancestors, hard links and files owned by another user are excluded.
-
-`VERIFIED_BACKUP <path>` proves the archive check completed; only
-`CLEAN_COMPLETE removed_files=...` reports removed originals. The GiB value is
-the sum of nominal file sizes; actual quota changes must be checked with
-`myfiles`. A GitHub commit or local test pass does not prove any IRIDIS file
-was removed or that any particular number of files can be reclaimed.
-
-To verify an existing session separately:
+Existing v1 archives can still be verified by v2:
 
 ```bash
 python3 -B "$SCRIPT" verify --session /research/xclimatetbm/ly3n24/Scratch_Declutter/<actual_session>
 ```
 
-To restore, verify first, then extract into a new review directory rather than
-overwriting live paths:
+Verify first, then restore into a new review directory:
 
 ```bash
 mkdir -p "$HOME/scratch_cleanup_restore_review"
@@ -103,22 +136,22 @@ tar -xzf /research/xclimatetbm/ly3n24/Scratch_Declutter/<actual_session>/files.t
   -C "$HOME/scratch_cleanup_restore_review"
 ```
 
-Member names contain original absolute paths with the leading slash removed.
-Inspect the manifest and restored files before copying a particular member back
-to its original location. Do not blanket-extract over a live Scratch tree.
+Member names contain original paths with the leading slash removed. Inspect
+the restored files and manifest before copying selected members to their
+original locations; do not extract over a live Scratch tree.
 
-## Tests and separate inode work
+## Tests
 
 ```bash
 python3 -B -m unittest discover -s tests -v
 ```
 
-Regression tests exercise queued-job/stream/receipt protection, protected source
-zones, valid archive/deletion/restore, corrupt backups, changed sources and
-symlink/hard-link exclusions. They use temporary fixtures; neither Slurm nor
-real research data are altered.
+Regression tests cover all twenty protected sites, both protected experiment
+naming schemes, direct/transitive/shared-link dependencies, other ERA source
+eligibility, runtime/queue protection, log retention, archive corruption,
+changed sources and exact restoration. Tests use temporary fixtures.
 
-If this audit finds few candidates, identify inode-heavy directories separately.
-Per-case Git packing is an existing, distinct workflow in
-[CLM-FATES-single-site-workflows/maintenance/cime_git_cleanup](https://github.com/lyanyeung/CLM-FATES-single-site-workflows/tree/main/maintenance/cime_git_cleanup).
-It is not performed by this script, and requires its own idle-case checks.
+If the bounded audit finds few ERA/log candidates, investigate other inode
+consumers separately. Existing
+[per-case Git maintenance](https://github.com/lyanyeung/CLM-FATES-single-site-workflows/tree/main/maintenance/cime_git_cleanup)
+is a distinct workflow and is not invoked here.

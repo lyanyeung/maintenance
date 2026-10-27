@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""IRIDIS6 unused surface ERA cache / old log cleanup, Python 3.9+ stdlib.
+"""IRIDIS6 ERA5 cleanup, KEEP AmeriFlux Batch03 and Batch05; Python 3.9+.
 
 audit: read-only. clean: archive on NFS, verify every member, then unlink
-unchanged eligible files. Original forcing, external evidence, scientific
-receipts, model history/restarts, source trees and Git are never candidates.
+unchanged eligible files. Retain Batch03/05 ERA sources, shared dependencies,
+runtime inputs, EC observations, scientific receipts, histories and restarts.
 """
 import argparse
 import collections
@@ -21,19 +21,55 @@ import tarfile
 import time
 import uuid
 
-VERSION = '20261027-v1'
-TOKEN = 'ARCHIVE_VERIFY_CLEAN_OLD_CACHE_LOGS'
+VERSION = '20261027-v2'
+TOKEN = 'ARCHIVE_VERIFY_CLEAN_ERA_EXCEPT_AMF03_05_AND_OLD_LOGS'
 SCRATCH = Path('/iridisfs/scratch/ly3n24')
 HOME = Path('/iridisfs/home/ly3n24')
 BACKUP = Path('/research/xclimatetbm/ly3n24/Scratch_Declutter')
 SITE_RE = re.compile(r'^[A-Z]{2}-[A-Za-z0-9]+$')
-ERA_RE = re.compile(r'era[-_]?5(?:[-_]?land)?|era[-_]?interim|\berai\b', re.I)
+ERA_RE = re.compile(r'era[-_]?5(?:[-_]?land)?', re.I)
 STATIC_RE = re.compile(r'surfdata|domain|mesh|landuse|pft|snow|soil', re.I)
 LOG_RE = re.compile(r'(?:\.log(?:\.[A-Za-z0-9_-]+)*|\.(?:out|err))(?:\.gz)?$', re.I)
 META_SUFFIXES = {'.json', '.xml', '.nml', '.streams', '.cfg', '.yaml', '.yml', '.tsv',
                  '.txt', '.sha256', '.py', '.sh'}
 SKIP_DIRS = {'.git', '__pycache__', 'node_modules', 'history', 'hist', 'rest', 'restart',
-             'raw', 'packages', 'inputdata', 'bld', 'Buildconf'}
+             'raw', 'packages', 'inputdata', 'bld'}
+# Pinned from the workflow repository's exact site manifests on 27 Oct 2026:
+# Batch03 Git blob 10cfac044cfe8d01d7a8033c3292cb3c2ee3e5c1
+# Batch05 Git blob 27f138fdb1dd91c3d8ef8e4b70bb5f833643f9c3
+PROTECTED_SITES = frozenset((
+    'US-Kon', 'US-Me2', 'US-Me6', 'US-MMS', 'US-MOz', 'US-Mpj', 'US-MtB',
+    'US-NC2', 'US-NR1', 'US-NR3',
+    'US-UiD', 'US-UMB', 'US-UMd', 'US-Var', 'US-Vcm', 'US-Vcp', 'US-WCr',
+    'US-Whs', 'US-Wjs', 'US-Wkg'))
+PROTECTED_SITE_RE = re.compile(r'(?<![A-Za-z0-9])(?:' + '|'.join(
+    re.escape(s) for s in sorted(PROTECTED_SITES)) + r')(?![A-Za-z0-9])', re.I)
+PROTECTED_BATCH_RE = re.compile(r'(?:ameriflux|amf).*batch0?[35](?:[^0-9]|$)', re.I)
+PAYLOAD_SUFFIXES = {'.nc', '.nc4', '.grib', '.grb', '.grb2', '.zip', '.csv', '.json'}
+RECORD_RE = re.compile(r'receipt|manifest|(?<![a-z])sha(?:256)?(?![a-z])|checksum|request|metadata|summary|'
+                       r'catalog|decision|ledger|report|plan|approval|license|readme|provenance|inventory|audit|status', re.I)
+OBS_RE = re.compile(r'FULLSET|FLUXMET|FLUXES|BIF', re.I)
+
+
+def protected_scope(path):
+    text = str(path)
+    return bool(PROTECTED_SITE_RE.search(text) or any(
+        PROTECTED_BATCH_RE.search(part) for part in Path(text).parts))
+
+
+def runtime_metadata(path):
+    return (path.name.lower() in {'lnd_in', 'datm_in', 'user_nl_clm', 'user_nl_datm'}
+            or 'streams' in path.name.lower() or 'CaseDocs' in path.parts
+            or 'Buildconf' in path.parts)
+
+
+def era_payload(path, relative):
+    # Retain mixed original EC packages/products even in an ERA-labelled folder.
+    return (path.suffix.lower() in PAYLOAD_SUFFIXES and ERA_RE.search(str(relative))
+            and not STATIC_RE.search(path.name) and not RECORD_RE.search(path.name)
+            and not OBS_RE.search(path.name) and not (
+                path.suffix.lower() == '.zip' and path.name.startswith(('AMF_', 'FLX_'))
+                and not ERA_RE.search(path.name)))
 
 
 def require(ok, message):
@@ -153,6 +189,10 @@ def active_paths(jobs, scratch):
 def active(row, protected, sites):
     if row.get('site') in sites:
         return True
+    if row['kind'] == 'ERA5_source_or_cache' and any(re.search(
+            r'(?<![A-Za-z0-9])' + re.escape(site) + r'(?![A-Za-z0-9])', row['path'], re.I)
+            for site in sites):
+        return True
     path = Path(row['path'])
     return any(path == Path(p) or Path(p) in path.parents for p in protected)
 
@@ -180,13 +220,6 @@ def metadata(scratch, home):
             yield path
 
 
-def surface(path):
-    if ordinary(path) is None or path.stat().st_size < 8 or STATIC_RE.search(path.name) is None:
-        return False
-    with path.open('rb') as handle:
-        return handle.read(8).startswith((b'CDF', b'\x89HDF\r\n\x1a\n'))
-
-
 def discover(scratch, home):
     rows = {}
     def add(path, kind, site='', case=''):
@@ -194,6 +227,12 @@ def discover(scratch, home):
         if sig is not None:
             rows[str(path)] = dict(path=str(path), kind=kind, site=site, case=case,
                                    signature=sig, bytes=sig[2])
+    def source_cache(folder, site=''):
+        # Only source/cache stores, never science_trials, selected forcing or DATM.
+        for path in walk(folder, (SKIP_DIRS - {'raw'}) | {'science_trials', 'reports', 'datm',
+                                          'processed', 'selected', 'forcing_final'}):
+            if era_payload(path, str(folder.name) + '/' + str(path.relative_to(folder))):
+                add(path, 'ERA5_source_or_cache', site)
     sitesroot = scratch / 'CLM_FATES' / 'sites' / 'MY_EC_SITE'
     if sitesroot.is_dir():
         for sitepath in sorted(sitesroot.iterdir()):
@@ -202,14 +241,38 @@ def discover(scratch, home):
             site = sitepath.name
             for path in walk(sitepath / 'subset_data'):
                 relative = str(path.relative_to(sitepath / 'subset_data'))
-                if (path.suffix.lower() in {'.nc', '.nc4', '.grib', '.grb', '.grb2'}
-                        and ERA_RE.search(relative) and not STATIC_RE.search(relative)):
-                    add(path, 'surface_ERA_cache', site)
+                if era_payload(path, relative):
+                    add(path, 'ERA5_source_or_cache', site)
                 elif LOG_RE.search(path.name):
                     add(path, 'old_log', site)
             for path in topfiles(sitepath):
                 if LOG_RE.search(path.name):
                     add(path, 'old_log', site)
+                elif era_payload(path, path.name):
+                    add(path, 'ERA5_source_or_cache', site)
+            # Original standalone ERA5 HH companions are now authorised for
+            # OTHER sites; Batch03/05 sites are unconditionally protected below.
+            forcing = sitepath / 'forcing'
+            if forcing.is_dir() and not forcing.is_symlink():
+                for folder in sorted(forcing.iterdir()):
+                    if folder.is_dir() and not folder.is_symlink() and (
+                            folder.name.lower().startswith('raw') or
+                            ERA_RE.search(folder.name) or folder.name.lower() in {'cache', 'external_evidence'}):
+                        source_cache(folder, site)
+            for folder in sorted(sitepath.iterdir()):
+                if folder.is_dir() and not folder.is_symlink() and ERA_RE.search(folder.name):
+                    source_cache(folder, site)
+    experiments = scratch / 'CLM_FATES' / 'experiments'
+    if experiments.is_dir() and not experiments.is_symlink():
+        for experiment in sorted(experiments.iterdir()):
+            if not experiment.is_dir() or experiment.is_symlink():
+                continue
+            for folder in sorted(experiment.iterdir()):
+                if folder.is_dir() and not folder.is_symlink() and (
+                        folder.name.lower() in {'external_evidence', 'external_data', 'cache', 'cds'}
+                        or (ERA_RE.search(folder.name) and not re.search(
+                            r'trial|shadow|forcing|selected|final|datm|report', folder.name, re.I))):
+                    source_cache(folder)
     for path in topfiles(home):
         if LOG_RE.search(path.name):
             add(path, 'old_log')
@@ -219,6 +282,8 @@ def discover(scratch, home):
             for path in topfiles(folder):
                 if LOG_RE.search(path.name):
                     add(path, 'old_log')
+        if folder.is_dir() and not folder.is_symlink() and ERA_RE.search(folder.name):
+            source_cache(folder)
     casesroot = scratch / 'CLM_FATES' / 'cases'
     if casesroot.is_dir():
         for case in sorted(casesroot.iterdir()):
@@ -240,6 +305,32 @@ def discover(scratch, home):
     return list(rows.values())
 
 
+def protected_link_targets(scratch, home):
+    """Protect shared real files reached through a Batch03/05 symlink."""
+    sites = scratch / 'CLM_FATES' / 'sites' / 'MY_EC_SITE'
+    roots = [sites / site for site in PROTECTED_SITES]
+    for base in (scratch / 'CLM_FATES' / 'experiments', home):
+        if base.is_dir():
+            roots.extend(p for p in base.iterdir() if protected_scope(p))
+    targets = set()
+    def error(exc):
+        raise exc
+    for root in roots:
+        if root.is_symlink():
+            targets.add(str(root.resolve()))
+            continue
+        if not root.is_dir():
+            continue
+        for folder, dirs, files in os.walk(str(root), followlinks=False, onerror=error):
+            for name in dirs + files:
+                path = Path(folder) / name
+                if path.is_symlink():
+                    targets.add(str(path.resolve()))
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in (SKIP_DIRS - {'raw', 'packages'})
+                       and not (Path(folder) / d).is_symlink()]
+    return targets
+
+
 def references(rows, scratch, home):
     """Conservative literal-reference scan; not a proof of all possible readers.
 
@@ -248,27 +339,33 @@ def references(rows, scratch, home):
     Long metadata files stream in chunks rather than being silently omitted.
     """
     lookup = collections.defaultdict(set)
+    kinds = {r['path']: r['kind'] for r in rows}
     for row in rows:
         path = Path(row['path'])
         keys = {str(path), path.name}
-        if row['kind'] == 'surface_ERA_cache':
-            subset = scratch / 'CLM_FATES' / 'sites' / 'MY_EC_SITE' / row['site'] / 'subset_data'
+        if row['kind'] == 'ERA5_source_or_cache':
             for parent in path.parents:
-                keys.add(str(parent))
-                if parent == subset:
+                if (parent in {scratch, home} or parent.name == row['site'] or
+                        parent.parent == scratch / 'CLM_FATES' / 'experiments'):
                     break
+                keys.add(str(parent))
         for value in keys:
             lookup[value].add(row['path'])
             if value.startswith('/iridisfs/scratch/'):
                 lookup[value.replace('/iridisfs/scratch/', '/scratch/', 1)].add(row['path'])
             if value.startswith('/iridisfs/home/'):
                 lookup[value.replace('/iridisfs/home/', '/home/', 1)].add(row['path'])
-    refs, configured = {}, collections.defaultdict(set)
+    refs, critical_refs = {}, {}
+    found_by_meta, edges, critical = {}, {}, set()
     total = 0
     for meta in metadata(scratch, home):
         total += 1
         if total % 500 == 0:
             print('SCANNING_METADATA files={}'.format(total), flush=True)
+        meta_key = str(meta.resolve())
+        found_by_meta[meta_key], edges[meta_key] = set(), set()
+        if protected_scope(meta) or runtime_metadata(meta):
+            critical.add(meta_key)
         with meta.open('r', encoding='utf-8', errors='replace') as handle:
             carry = ''
             while True:
@@ -280,55 +377,70 @@ def references(rows, scratch, home):
                 tokens = re.findall(r'[^\s\x00\x01-\x1f\"\'<>|,;\[\]{}()=]+', text)
                 for token in tokens:
                     token = token.rstrip(':')
-                    for key in {token, token.rsplit('/', 1)[-1]}:
+                    contextual = os.path.normpath(token if token.startswith('/') else str(meta.parent / token))
+                    for key in {token, contextual}:
                         for target in lookup.get(key, ()):
+                            # A bare ERA filename is relative to its metadata
+                            # directory; it is not every identically named file
+                            # in every other batch's download store.
+                            if key == token and not token.startswith('/') and kinds[target] != 'old_log':
+                                continue
                             refs.setdefault(target, str(meta))
-                if meta.name in {'lnd_in', 'user_nl_clm'}:
-                    for value in re.findall(r'\bfsurdat\s*=\s*[\"\']([^\"\']+)[\"\']', text, re.I):
-                        candidate = Path(value)
-                        if candidate.is_absolute():
-                            candidate = candidate.resolve()
-                            if surface(candidate):
-                                # Match configured surface path to its source site subtree.
-                                for part in candidate.parts:
-                                    if SITE_RE.fullmatch(part):
-                                        configured[part].add(str(candidate))
-                                # A custom surface outside the site tree is evidence only
-                                # for the exact case-name site, not every station.
-                                match = re.match(r'^([A-Z]{2}-[A-Za-z0-9]+)_', meta.parent.parent.name)
-                                if match:
-                                    configured[match.group(1)].add(str(candidate))
+                            found_by_meta[meta_key].add(target)
+                    for target in lookup.get(token.rsplit('/', 1)[-1], ()):
+                        if kinds[target] == 'old_log':
+                            refs.setdefault(target, str(meta))
+                            found_by_meta[meta_key].add(target)
+                    if token.startswith('/') and (Path(token).suffix.lower() in META_SUFFIXES | {'.csv'}
+                                                   or Path(token).name.lower() == 'sha256sums'):
+                        edges[meta_key].add(str(Path(token).resolve()))
                 carry = text[-16384:]
-    return refs, configured, total
+    # Follow literal receipt/source links out of protected batches, preserving
+    # shared dependencies even when their on-disk folder belongs to another batch.
+    pending, seen = list(critical), set()
+    while pending:
+        key = pending.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        for target in found_by_meta.get(key, ()):
+            critical_refs.setdefault(target, key)
+        pending.extend(edges.get(key, set()) - seen)
+    return refs, critical_refs, total
 
 
 def audit(scratch, home, min_days, jobs):
     rows = discover(scratch, home)
-    refs, configured, scanned = references(rows, scratch, home)
+    refs, critical_refs, scanned = references(rows, scratch, home)
+    aliases = protected_link_targets(scratch, home)
     protected, busy_sites = active_paths(jobs, scratch)
     cutoff = time.time_ns() - int(min_days * 86400 * 1e9)
     for row in rows:
         reasons = []
-        if row['signature'][3] > cutoff:
+        if row['kind'] == 'old_log' and row['signature'][3] > cutoff:
             reasons.append('younger_than_{}d'.format(min_days))
         if active(row, protected, busy_sites):
             reasons.append('queued_or_running_job')
-        if row['path'] in refs:
+        if row['kind'] == 'old_log' and row['path'] in refs:
             reasons.append('metadata_reference:' + refs[row['path']])
-        if row['kind'] == 'surface_ERA_cache':
-            proof = sorted(configured.get(row['site'], ()))
-            row['configured_surface_files'] = proof
-            if not proof:
-                reasons.append('no_site_surface_verified_in_case_configuration')
+        if row['kind'] == 'ERA5_source_or_cache':
+            if protected_scope(row['path']):
+                reasons.append('KEEP_AMERIFLUX_BATCH03_OR_BATCH05')
+            if any(Path(row['path']) == Path(t) or Path(t) in Path(row['path']).parents for t in aliases):
+                reasons.append('SHARED_WITH_BATCH03_OR_BATCH05_VIA_SYMLINK')
+            if row['path'] in critical_refs:
+                reasons.append('protected_batch_or_runtime_reference:' + critical_refs[row['path']])
+            row['historical_reference_restore_if_needed'] = refs.get(row['path'])
         row['reasons'] = reasons
         row['eligible'] = not reasons
     print('MODE=AUDIT VERSION={} metadata_files={} queued_jobs={}'.format(VERSION, scanned, len(jobs)), flush=True)
-    for kind in ('surface_ERA_cache', 'old_log'):
+    print('ERA_POLICY=KEEP_AMF_BATCH03_BATCH05_AND_SHARED_DEPENDENCIES; OTHER_ERA5_ARCHIVE_THEN_REMOVE', flush=True)
+    for kind in ('ERA5_source_or_cache', 'old_log'):
         for eligible in (True, False):
             group = [r for r in rows if r['kind'] == kind and r['eligible'] == eligible]
             print('{} {} files={} GiB={:.3f}'.format(kind, 'ELIGIBLE' if eligible else 'KEEP',
                   len(group), sum(r['bytes'] for r in group) / 1024**3), flush=True)
-    print('Original ERA/ERA5-Land source evidence, forcing, surface, restart/history and Git: PROTECTED', flush=True)
+    print('Batch03/05 ERA, runtime inputs, EC observations, derived forcing, scientific receipts, surface, restart/history and Git: PROTECTED', flush=True)
     return rows
 
 
@@ -336,7 +448,7 @@ def verify_session(session):
     manifest_path = session / 'manifest.json'
     require(ordinary(manifest_path) is not None, 'Missing/unsafe manifest')
     doc = json.loads(manifest_path.read_text())
-    require(doc.get('version') == VERSION and doc.get('verified_archive') is True,
+    require(doc.get('version') in {'20261027-v1', VERSION} and doc.get('verified_archive') is True,
             'Session has not completed archive verification')
     archive = session / 'files.tar.gz'
     require(ordinary(archive) is not None and digest(archive) == doc['archive_sha256'],
@@ -428,7 +540,7 @@ def prune(doc, session, current_rows, jobs, scratch):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('mode', choices=('audit', 'clean', 'verify'))
-    p.add_argument('--min-days', type=float, default=7, help='Minimum age; cannot be below 7 days')
+    p.add_argument('--min-days', type=float, default=7, help='Minimum log age (>=7 days); no age gate on other ERA5')
     p.add_argument('--details', action='store_true')
     p.add_argument('--confirm', default='')
     p.add_argument('--session', type=Path)
