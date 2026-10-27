@@ -21,7 +21,7 @@ import tarfile
 import time
 import uuid
 
-VERSION = '20261027-v2'
+VERSION = '20261027-v3-mount-probe'
 TOKEN = 'ARCHIVE_VERIFY_CLEAN_ERA_EXCEPT_AMF03_05_AND_OLD_LOGS'
 SCRATCH = Path('/iridisfs/scratch/ly3n24')
 HOME = Path('/iridisfs/home/ly3n24')
@@ -448,7 +448,7 @@ def verify_session(session):
     manifest_path = session / 'manifest.json'
     require(ordinary(manifest_path) is not None, 'Missing/unsafe manifest')
     doc = json.loads(manifest_path.read_text())
-    require(doc.get('version') in {'20261027-v1', VERSION} and doc.get('verified_archive') is True,
+    require(doc.get('version') in {'20261027-v1', '20261027-v2', VERSION} and doc.get('verified_archive') is True,
             'Session has not completed archive verification')
     archive = session / 'files.tar.gz'
     require(ordinary(archive) is not None and digest(archive) == doc['archive_sha256'],
@@ -472,17 +472,59 @@ def verify_session(session):
     return doc
 
 
+def mount_info(path):
+    """Parse structured findmnt output; do not conflate an autofs parent with NFS."""
+    resolved = Path(path).resolve(strict=True)
+    doc = json.loads(command(['findmnt', '--json', '--target', str(resolved),
+                              '--output', 'TARGET,SOURCE,FSTYPE']))
+    rows = []
+    def visit(items):
+        for item in items:
+            if all(item.get(k) for k in ('target', 'source', 'fstype')):
+                target = Path(item['target'])
+                if target == resolved or target in resolved.parents:
+                    rows.append({k: item[k] for k in ('target', 'source', 'fstype')})
+            visit(item.get('children', []))
+    visit(doc.get('filesystems', []))
+    require(rows, 'No effective mount record for ' + str(resolved))
+    # A mounted real filesystem may shadow an autofs trigger at the same path.
+    real = [row for row in rows if row['fstype'] != 'autofs']
+    candidates = real or rows
+    deepest = max(len(Path(row['target']).parts) for row in candidates)
+    selected = [row for row in candidates if len(Path(row['target']).parts) == deepest]
+    unique = {(r['target'], r['source'], r['fstype']) for r in selected}
+    require(len(unique) == 1, 'Ambiguous effective backup mount: ' + json.dumps(selected))
+    return selected[0]
+
+
+def probe_backup(path):
+    parent = Path(path).parent
+    require(parent.is_dir(), 'Research Filestore parent unavailable: ' + str(parent))
+    info = mount_info(parent)
+    print('BACKUP_MOUNT_OBSERVED', json.dumps(dict(path=str(parent),
+          resolved=str(parent.resolve()), **info)), flush=True)
+    return info
+
+
+def require_nfs(info):
+    require(info['fstype'] in {'nfs', 'nfs4'} and info['target'] != '/',
+            'Backup mount needs review: ' + json.dumps(info) +
+            '; no archive or deletion. Use probe-mount to report the actual filesystem; '
+            'do not bypass this check')
+
+
 def nfs_backup(path, scratch, home):
     # Trigger the existing automount parent, then check effective filesystem.
     require(path.parent.is_dir(), 'Research Filestore parent unavailable: ' + str(path.parent))
     effective = Path(path).resolve()
     require(effective != scratch and scratch not in effective.parents and
             effective != home and home not in effective.parents, 'Backup cannot be on Scratch/Home')
-    require(command(['findmnt', '-n', '-o', 'FSTYPE', '-T', str(path.parent)]).strip() in {'nfs', 'nfs4'},
-            'Research Filestore is not an NFS mount; no archive or deletion')
+    before = probe_backup(path)
+    require_nfs(before)
     path.mkdir(exist_ok=True)
-    require(command(['findmnt', '-n', '-o', 'FSTYPE', '-T', str(path)]).strip() in {'nfs', 'nfs4'},
-            'Backup destination lost NFS mount')
+    after = mount_info(path)
+    require_nfs(after)
+    require(before == after, 'Backup mount changed while preparing archive directory')
 
 
 def archive_rows(rows, backup):
@@ -539,22 +581,29 @@ def prune(doc, session, current_rows, jobs, scratch):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('mode', choices=('audit', 'clean', 'verify'))
+    p.add_argument('mode', choices=('audit', 'clean', 'verify', 'probe-mount'))
     p.add_argument('--min-days', type=float, default=7, help='Minimum log age (>=7 days); no age gate on other ERA5')
     p.add_argument('--details', action='store_true')
     p.add_argument('--confirm', default='')
     p.add_argument('--session', type=Path)
     args = p.parse_args()
     require(args.min_days >= 7, 'Minimum retention is seven days')
+    if args.mode == 'probe-mount':
+        probe_backup(BACKUP)
+        print('READONLY_MOUNT_PROBE_COMPLETE no writes/deletion; no Slurm query')
+        return
     if args.mode == 'verify':
         require(args.session is not None, '--session is required')
         verify_session(args.session.resolve(strict=True))
         print('VERIFIED_SESSION', args.session)
         return
     scratch, home = SCRATCH.resolve(strict=True), HOME.resolve(strict=True)
+    if args.mode == 'clean':
+        require(args.confirm == TOKEN, 'clean requires --confirm ' + TOKEN)
+        require_nfs(probe_backup(BACKUP))
     rows = audit(scratch, home, args.min_days, queue())
     for row in rows:
-        if args.details or row['eligible']:
+        if args.details:
             print('{}\t{}\t{}\t{}\t{}'.format('ELIGIBLE' if row['eligible'] else 'KEEP',
                   row['kind'], row['bytes'], row['path'], ';'.join(row['reasons'])), flush=True)
     candidates = [r for r in rows if r['eligible']]

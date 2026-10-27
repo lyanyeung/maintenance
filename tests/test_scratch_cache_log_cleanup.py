@@ -209,10 +209,46 @@ class CleanupTests(unittest.TestCase):
 
     def test_nfs_mount_failure_prevents_backup_directory_creation(self):
         target = self.backup / 'session_root'
-        with mock.patch.object(C, 'command', return_value='ext4\n'):
+        result = json.dumps({'filesystems':[{'target':'/', 'source':'/dev/root', 'fstype':'ext4'}]})
+        with mock.patch.object(C, 'command', return_value=result):
             with self.assertRaises(RuntimeError):
                 C.nfs_backup(target, self.scratch, self.home)
         self.assertFalse(target.exists())
+
+    def test_mount_probe_handles_autofs_and_nfs_at_same_target(self):
+        result = json.dumps({'filesystems':[
+            {'target':str(self.backup), 'source':'automount', 'fstype':'autofs'},
+            {'target':str(self.backup), 'source':'rfs:/research', 'fstype':'nfs4'}]})
+        with mock.patch.object(C, 'command', return_value=result):
+            info = C.mount_info(self.backup)
+        self.assertEqual(info['fstype'], 'nfs4')
+        self.assertEqual(info['source'], 'rfs:/research')
+
+    def test_non_nfs_type_is_reported_and_still_requires_review(self):
+        result = json.dumps({'filesystems':[{'target':str(self.backup),
+                           'source':'//rfs/research', 'fstype':'cifs'}]})
+        with mock.patch.object(C, 'command', return_value=result):
+            info = C.mount_info(self.backup)
+        with self.assertRaisesRegex(RuntimeError, 'cifs'):
+            C.require_nfs(info)
+
+    def test_ambiguous_mounts_fail_closed(self):
+        result = json.dumps({'filesystems':[
+            {'target':str(self.backup), 'source':'rfs:/a', 'fstype':'nfs4'},
+            {'target':str(self.backup), 'source':'rfs:/b', 'fstype':'nfs4'}]})
+        with mock.patch.object(C, 'command', return_value=result):
+            with self.assertRaises(RuntimeError):
+                C.mount_info(self.backup)
+
+    def test_mount_probe_has_no_file_or_slurm_writes(self):
+        output = io.StringIO()
+        result = json.dumps({'filesystems':[{'target':str(self.backup),
+                           'source':'rfs:/research', 'fstype':'nfs4'}]})
+        before = list(self.backup.iterdir())
+        with mock.patch.object(C, 'command', return_value=result), contextlib.redirect_stdout(output):
+            C.probe_backup(self.backup / 'not-created')
+        self.assertEqual(list(self.backup.iterdir()), before)
+        self.assertIn('BACKUP_MOUNT_OBSERVED', output.getvalue())
 
     def test_queue_reads_full_pending_job_metadata(self):
         calls = ['4748798\n', 'JobId=4748798 JobName=run.US-Test_CASE JobState=PENDING WorkDir=/case StdOut=/old.log StdErr=/old.err Command=/case/.case.run\n']

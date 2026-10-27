@@ -21,7 +21,11 @@ member against SHA256, rechecks dependencies and removes unchanged originals.
 Audit mode is read-only. Original EC observations/mixed packages, derived
 forcing, scientific receipts, surfaces, histories/restarts and Git are retained.
 See the runbook for bounded discovery, restoration and reference-scan limits.
-Use the v2 pinned download; the earlier v1 pinned command retains its old policy.
+Use the latest pinned download; earlier pinned commands retain their old code.
+The current version adds read-only `probe-mount` diagnostics and structured mount
+identification after the login6003 mount-check interruption. It prints the actual
+mount identity before stopping and checks it before a long cleanup inventory.
+Default listings are summaries; `--details` prints every candidate.
 No IRIDIS cleanup result is claimed by this repository update.
 
 ## Implemented features

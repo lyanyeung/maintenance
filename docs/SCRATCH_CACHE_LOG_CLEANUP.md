@@ -9,6 +9,25 @@ caches may be archived and removed.** Old-log retention remains seven days.
 `squeue`, `scontrol` and `findmnt`. Run on IRIDIS6 as `ly3n24`; no Conda
 activation, model submission or Git pull is required.
 
+## Mount-check interruption on login6003
+
+The operator's supplied output ended at `Research Filestore is not an NFS
+mount; no archive or deletion`. The preceding `ELIGIBLE` lines were inventory,
+not deletion receipts. The actual filesystem type was not reported by v2 and
+must not be guessed from this error.
+
+Version `20261027-v3-mount-probe` reads structured mount records, distinguishes
+a mounted NFS filesystem from a shadowed autofs trigger, and reports the exact
+mount target, source and filesystem type. Other filesystems still stop pending
+review of the actual host's mount identity; this change does not assume CIFS,
+GPFS or any other type is the user's backup destination.
+
+Run `python3 -B "$SCRIPT" probe-mount` for a short read-only diagnostic. It
+does not scan candidates, query Slurm, create reports or delete files. Clean
+mode checks the mount before the long inventory. Default inventories now show
+summaries; use `--details` for the full per-file list. Batch03/05 retention,
+archive verification and deletion rules are unchanged.
+
 ## Explicit retention list
 
 | Protected campaign | All ten protected station IDs |
@@ -74,9 +93,8 @@ deletion, model run/build cleanup, Git packing or empty-directory removal occurs
 
 ## Run
 
-Use the downloaded script from the **v2 commit and SHA256 supplied in the
-handoff**. The original v1 pinned command still downloads v1 and must not be used
-for the new policy.
+Use the downloaded script from the **latest commit and SHA256 supplied in the
+handoff**. Older pinned commands retain their earlier code.
 
 ```bash
 # Read-only; no files created or removed.
@@ -122,7 +140,7 @@ Only `myfiles` establishes the resulting quota usage. Publication and local
 tests do not establish that IRIDIS cleanup ran. The operator's earlier snapshot
 was 846/2000 GB and 1,011,142/1,228,800 files (217,658 file slots remaining).
 
-Existing v1 archives can still be verified by v2:
+Existing v1 and v2 archives can still be verified by the current version:
 
 ```bash
 python3 -B "$SCRIPT" verify --session /research/xclimatetbm/ly3n24/Scratch_Declutter/<actual_session>
