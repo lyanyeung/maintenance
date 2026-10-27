@@ -2,6 +2,26 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
+## Scratch: unused surface ERA caches and old logs (27 October 2026)
+
+[Runbook](docs/SCRATCH_CACHE_LOG_CLEANUP.md) · [Python script](scripts/scratch_cache_log_cleanup.py)
+
+The separate Scratch tool inventories unused ERA meteorological caches under
+site `subset_data/` directories and old logs in explicitly bounded locations.
+It requires a configured site surface before considering its ERA cache, retains
+files referenced by configuration/source/receipt metadata, and skips related
+queued/running jobs. Original forcing, downloaded repair evidence (including
+ongoing AmeriFlux Batch03), model history/restarts and Git remain protected.
+
+Run the downloaded, commit-pinned script with `audit` first. The explicitly
+requested `clean --confirm ARCHIVE_VERIFY_CLEAN_OLD_CACHE_LOGS` command archives
+eligible files onto the mounted Research Filestore, verifies each archived
+member against SHA256, rechecks dependencies and then removes unchanged
+originals. Default minimum age is seven days. No archive or report is created
+by `audit`. See the runbook for exact scope, restore instructions and limits
+of literal-reference scanning. The code is published; no IRIDIS cleanup result
+is claimed by this repository update.
+
 ## Implemented features
 
 - **`audit` (read-only):** Classifies non-hidden files at the top level of Home and lists old logs, Slurm previews, historical archives, and project directories that have not been cleaned up.
@@ -94,3 +114,4 @@ curl -fsSL https://raw.githubusercontent.com/lyanyeung/maintenance/main/scripts/
 ```
 
 The audit counts HH / BIF / DD / MM / YY CSV files and the original ZIP files in each raw release directory. By default, it prints results to the terminal only; it creates no files and deletes no data. Deletion requires explicit `--apply --confirm DELETE_DD_MM_YY` and applies only to DD/MM/YY files with a corresponding HH file of the same name stem. **ZIP files are never deleted.** DATM files, CIME cases, restarts, and model history NetCDF files are untouched. Before deletion, confirm any requirements to retain official aggregated products and ensure an independent backup exists.
+
