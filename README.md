@@ -2,6 +2,23 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
+## Scratch: four ICOS/FLUXNET batches — CIME Git inode packing
+
+[Runbook](docs/ICOS_FOUR_BATCH_GIT_PACK.md) · [Standalone Python tool](scripts/pack_four_batch_case_git.py)
+
+The maintenance repository now contains a byte-identical copy of the existing
+38-case CIME Git packing tool from `CLM-FATES-single-site-workflows`. It covers
+the 6/8/11/13-site ICOS/FLUXNET experiments, **not** the separate AmeriFlux
+AD400/NORMAL400 experiment. Run `audit` read-only on a single Slurm CPU first;
+use `run --skip-locked` only after confirming case-level idleness. The command
+uses local Git (`git gc --no-prune`) and requires no external network on red
+compute nodes. All Git locks and model outputs/restarts remain protected.
+
+Do **not** overlap this operation with the ongoing AmeriFlux Git packing
+job `gc_finished_nc` or other Git maintenance. Preexisting case locks,
+queued/running jobs with ambiguous ownership and concurrent writers require
+review. No inode savings or IRIDIS cleanup are claimed by publication alone.
+
 ## Scratch: ERA5 cleanup keeps AmeriFlux Batch03 and Batch05
 
 [Runbook](docs/SCRATCH_CACHE_LOG_CLEANUP.md) · [Python script](scripts/scratch_cache_log_cleanup.py)
