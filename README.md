@@ -2,6 +2,18 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
+## Scratch: offload the legacy 1000-year Normal spin-ups (ICOS 6/8/11/13)
+
+[Runbook](docs/OFFLOAD_LEGACY_SPINUP1000.md) · [Python tool](scripts/offload_legacy_spinup1000.py)
+
+Moves every `*_FATES_SPINUP500/1000*` case of the FLUXNET_MultiSite_6/8/11/13 examples
+(case dir, own bld, run, archive) to `/research/xclimatetbm/ly3n24/Scratch_Offload/legacy1000_*`
+as one verified tar per case, then deletes it from Scratch. Only the first 1000 model years are
+copied: the FLUXNET_MultiSite_6 output beyond 1000 years (1000→3000 continuation) is deleted
+without copying. Cases with live jobs and cases still referenced by a remaining case (and what
+they reference) are held. FIXNC cases and shared EXEROOTs are never touched.
+`clean --confirm DELETE_VERIFIED_LEGACY_SPINUP1000`.
+
 ## Scratch: offload failed first-run FIXNC cases to the Research Filestore
 
 [Runbook](docs/OFFLOAD_FAILED_CASES.md) · [Python tool](scripts/offload_failed_cases.py)
