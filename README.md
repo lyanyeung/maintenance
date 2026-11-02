@@ -2,6 +2,16 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
+## Scratch: FIXNC no-competition cases — find finished runs, pack CIME Git
+
+[Runbook](docs/FIXNC_CASE_GIT_PACK.md) · [Python tool](scripts/audit_pack_fixnc_case_git.py)
+
+Covers ICOS Batch01–04 and AmeriFlux Batch01–05 FIXNC cases. `audit` (read-only) judges
+each case DONE / ACTIVE / stopped from CaseStatus, RESUBMIT, the Slurm queue and archived
+restarts, and reports `.git` inodes and loose objects per cohort. `run` packs only DONE,
+idle, unlocked cases with `git gc --no-prune` and a before/after Git snapshot check.
+Shares `~/.cime_git_maintenance.lock` with the other Git packers.
+
 ## Scratch: four ICOS/FLUXNET batches — CIME Git inode packing
 
 [Runbook](docs/ICOS_FOUR_BATCH_GIT_PACK.md) · [Standalone Python tool](scripts/pack_four_batch_case_git.py)
