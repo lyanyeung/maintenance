@@ -50,7 +50,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-VERSION = '20261102-v1'
+VERSION = '20261102-v2'
 TOKEN = 'DELETE_VERIFIED_SCRATCH_OUTPUTS'
 DEFAULT_DEST = Path('/research/xclimatetbm/ly3n24/Scratch_Offload')
 DEFAULT_SCRATCH_ROOTS = ('/iridisfs/scratch/ly3n24', '/scratch/ly3n24')
@@ -112,10 +112,13 @@ def case_outputs(case):
             paths[key] = Path(os.path.abspath(value))
     roots = []
     run, exe = paths.get('RUNDIR'), paths.get('EXEROOT')
-    if run and exe and run.parent == exe.parent and run.parent.name == case.name:
-        roots.append(run.parent)
-    else:
-        roots += [p for p in (run, exe) if p]
+    if run:
+        roots.append(run.parent if run.parent.name == case.name else run)
+    # Only a case-owned build is removed. A shared EXEROOT (e.g. one common executable in
+    # another case's bld used by many --keepexe cases) is never an offload root.
+    if exe and case.name in Path(os.path.realpath(str(exe))).parts \
+            and not any(is_within(exe, r) for r in roots):
+        roots.append(exe)
     if paths.get('DOUT_S_ROOT'):
         roots.append(paths['DOUT_S_ROOT'])
     return env, paths, roots
@@ -264,7 +267,9 @@ def build_plan(args):
         if not roots:
             held.append((name, 'no Scratch outputs found (already offloaded?)'))
             continue
-        entry = {'case': name, 'site': d['site'], 'cohort': d['cohort'], 'state': d['state'],
+        exe = d['out'].get('EXEROOT')
+        shared_exe = str(exe) if exe and not any(is_within(Path(os.path.realpath(str(exe))), r) for r in roots) else ''
+        entry = {'case': name, 'site': d['site'], 'shared_exeroot_kept': shared_exe, 'cohort': d['cohort'], 'state': d['state'],
                  'years': d['years'], 'case_dir': str(d['path']),
                  'case_dir_inventory': inventory(d['path']),
                  'delete_roots': [{'path': str(r), **inventory(r)} for r in roots]}
@@ -306,6 +311,10 @@ def print_plan(plan):
         print('HELD\t{}\t{}'.format(h['case'], h['reason']))
     print('\nTOTAL cases_to_offload={} scratch_inodes_freed~={} GB={:.1f} held_cases={}'.format(
         len(plan['cases']), tf + td, tb / gb, len(plan['held'])))
+    shared = sorted({c['shared_exeroot_kept'] for c in plan['cases'] if c.get('shared_exeroot_kept')})
+    for sx in shared:
+        n = sum(1 for c in plan['cases'] if c.get('shared_exeroot_kept') == sx)
+        print('SHARED_EXEROOT_KEPT {} (used by {} offloaded case(s); never deleted)'.format(sx, n))
     print('Not FIXNC first-run cases (legacy SPINUP etc.), left alone: {}'.format(len(plan['ignored_not_fixnc'])))
     print('Case directories are archived too but stay on Scratch.')
 

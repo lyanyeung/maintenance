@@ -5,8 +5,8 @@ Python 3.9+, no third-party modules.
 
 ## What moves, what stays
 
-**Moves (archived, then removed from Scratch):** `run`, `bld` (`$CIME_OUTPUT_ROOT/<case>`) and
-`$DOUT_S_ROOT` (`archive/<case>`: histories, restarts, logs) of the **first production runs**
+**Moves (archived, then removed from Scratch):** `$CIME_OUTPUT_ROOT/<case>` (run, and bld only if
+the case owns it) and `$DOUT_S_ROOT` (`archive/<case>`: histories, restarts, logs) of the **first production runs**
 (AD400, NORMAL400, AD5 smoke, superseded input variants) at sites whose first run clearly failed
 (`docs/NEEDLELEAF_COLLAPSE_DIAGNOSIS.md`, sections 10, 14 and 16 of Non-Competition-CLM-experiment):
 
@@ -29,6 +29,9 @@ Override with `--sites ...` or `--exclude-site ...`.
 - **Case directories.** They are archived as well, but they stay on Scratch for `create_clone`.
   A clone made from a case whose `bld` was removed must be built again.
 - **The legacy 6/8/11/13 SPINUP cases and other experiments.**
+- **A shared EXEROOT.** Most FIXNC cases run the common executable in
+  `CTSM_FATES_OUTPUTS/GF-Guy_FATES_SURF2000_CO2405_1PT/bld` (`--keepexe`). A bld whose path does not
+  name the case is never an offload root. The plan reports it as `SHARED_EXEROOT_KEPT`.
 
 ## Steps
 
