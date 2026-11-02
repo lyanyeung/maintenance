@@ -2,6 +2,17 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
+## Scratch: offload failed first-run FIXNC cases to the Research Filestore
+
+[Runbook](docs/OFFLOAD_FAILED_CASES.md) · [Python tool](scripts/offload_failed_cases.py)
+
+Run outputs, bld and archive of the first production runs at sites whose first run failed
+(needleleaf collapse/loss, phenology) go to `/research/xclimatetbm/ly3n24/Scratch_Offload/`.
+Each case is written as one tar with a per-file SHA256 manifest and is verified by reading it back.
+Only verified files that have not changed since are deleted from Scratch. Sites in a current
+experiment (DIAG/FIX/PHENFIX trials, live jobs), cases another case depends on, protected examples
+and case directories stay.
+
 ## Scratch: FIXNC no-competition cases — find finished runs, pack CIME Git
 
 [Runbook](docs/FIXNC_CASE_GIT_PACK.md) · [Python tool](scripts/audit_pack_fixnc_case_git.py)
