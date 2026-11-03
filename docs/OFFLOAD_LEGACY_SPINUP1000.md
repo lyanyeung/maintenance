@@ -137,6 +137,14 @@ Session `/research/xclimatetbm/ly3n24/Scratch_Offload/legacy1000_20261102T230224
 `DK-Sor_FATES_HIST1996_2024_NOAA_CO2` and `DK-Sor_FATES_HIST1996_2024_TEST`: verified=3 skipped=0,
 `CLEAN_DONE unlinked=8934 rmdir=405 kept_changed=0`. `myfiles` after: 552/2000 GB, 698,352/1,228,800 files.
 
+**2026-11-03 06:56, v2, `offload_legacy_sites.sh IT-Noe`.** Session
+`/research/xclimatetbm/ly3n24/Scratch_Offload/legacy1000_20261103T065610Z_f25f7a94`.
+`IT-Noe_FATES_SPINUP500_11P` (5/1000 years, state ERROR): verified=1 skipped=0,
+`CLEAN_DONE unlinked=319 rmdir=156 kept_changed=0`. `IT-Noe_B02_FIXNC_AD400_BARE34_SHRUB66_AD5` untouched.
+`myfiles` after: 551/2000 GB, 697,989/1,228,800 files.
+**All legacy 6/8/11/13-site SPINUP cases are now off Scratch** (56 + 3 + 1 cases in three sessions).
+Not in scope and left on Scratch: `GF-Guy_FATES_SPINUP`, `GF-Guy_FATES_SPINUP300_CO2405`.
+
 **Bug found in v1 (`20261102-legacy1000-v1`), fixed in v2.** The plan stored RUNDIR/DOUT_S_ROOT as
 written in env (`/scratch/...`), but the walked roots were resolved (`/iridisfs/scratch/...`), so
 the beyond-1000 rule never matched. In both sessions above, the batch-6 output beyond 1000
