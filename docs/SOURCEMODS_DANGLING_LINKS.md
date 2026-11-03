@@ -70,7 +70,15 @@ Phenology-patched cases must have their own build and a real `SourceMods/src.clm
 (Non-Competition-CLM-experiment `maintenance/RULES_FOR_NEW_CASES.md`); the report's
 `src.clm_patch` column shows whether that file is visible.
 
-After the repair: `scancel` the orphan `st_archive` jobs and `./case.submit` the 22 failed cases.
+After the repair: `scancel` the orphan `st_archive` jobs and resubmit the 22 failed cases with
+**`./case.submit --skip-preview-namelist`**, never a plain `./case.submit`. These FATES AD cases
+carry `spinup_state = 2` in `user_nl_clm`; the pinned CTSM build-namelist only accepts it through the
+private overlay used once at prepare time (`COMP_ROOT_DIR_LND` → overlay, `preview_namelists`,
+restored). A plain submit regenerates the land namelist with the stock build-namelist and stops
+before Slurm with the misleading
+`spinup_state is accelerated ... but the BGC mode is Satellite Phenology` (FATES has `use_cn`
+false in this CTSM). With `--skip-preview-namelist`, `case.run` still regenerates the driver
+namelist only, which is why the dangling `SourceMods/src.drv` surfaced inside the job.
 
 ## Prevention (v3, 2026-11-03)
 
@@ -84,4 +92,9 @@ plan time and again in the pre-archive/pre-clean recheck. Regression tests:
 ## Run record
 
 - 2026-11-03 13:0x: diagnosis from operator output (sacct + job logs + `SourceMods` scan).
+- 13:29 relink (`~/sourcemods_relink_20261103T132905Z.tsv`); concurrent phenology-rollout
+  submissions relinked part of the same cases first (`SKIP (changed since scan)`). After: link_ok 260,
+  real_dir 54, DANGLING 0.
+- 13:3x plain `./case.submit` of the 22 cases stopped at build-namelist (spinup_state/SP message,
+  nothing submitted); resubmit with `--skip-preview-namelist`.
 - Repair: _to be filled from `~/sourcemods_relink_<UTC>.tsv` and the post-fix summary._
