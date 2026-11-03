@@ -89,6 +89,20 @@ myfiles
 size and mtime are unchanged. Every action is logged in `$SES/cleanup_actions.tsv`. Use
 `--case NAME` to clean one case first, and `--rehash` to re-hash each tar before deleting.
 
+## One-shot for remaining sites (held cases)
+
+`scripts/offload_legacy_sites.sh SITE...` runs plan → archive → clean for the legacy cases at the
+given sites. A dependant at the same site that is not FIXNC/OBSPFT (e.g. `DK-Sor_FATES_HIST1996_2024_*`)
+is added with `--extra-case` and is archived and deleted with the case it depends on. Any other hold
+(live job, Git lock, recent writes, a FIXNC or other-site dependant) stops the script before anything
+is written. It deletes only when every planned case is `ARCHIVED_VERIFIED`. Logs go to `~/legacy1000_logs/`.
+
+```bash
+cd ~/maintenance_tools/legacy1000
+curl -fsSL -o offload_legacy_sites.sh https://raw.githubusercontent.com/lyanyeung/maintenance/main/scripts/offload_legacy_sites.sh
+bash offload_legacy_sites.sh DK-Sor IT-Noe
+```
+
 ## Restore
 
 ```bash
@@ -104,5 +118,16 @@ this offload they are duplicates and can be reviewed separately.
 
 ## Run record
 
-To be filled in from the IRIDIS6 output: plan totals, session path, verified/skipped,
-CLEAN_DONE line and `myfiles` before/after. No IRIDIS run is claimed by this commit.
+**2026-11-02/03, login6001/6002 (operator output).**
+Session `/research/xclimatetbm/ly3n24/Scratch_Offload/legacy1000_20261102T230224Z_c043d55e`.
+
+- archive: `ARCHIVE_DONE verified=56 skipped=0`, NEED_GB≈280.8 (DEST_FREE_GB 1952.5, NFS
+  `xclimatetbm.files.soton.ac.uk:/ifs/research/FHS/FHSallocated/xclimatetbm`).
+- clean: pilot `AT-Neu_FATES_SPINUP500_11P` first, then the rest:
+  `CLEAN_DONE unlinked=185848 rmdir=10588 kept_changed=0` (55 cases, all `roots_left=0`; AT-Neu
+  reported `CLEAN_SKIPPED` because the pilot had already removed it).
+- `myfiles` after: Scratch 564/2000 GB, 702,900/1,228,800 files.
+- The four batch-6 continuation cases (DE-Tha, NL-Loo, IL-Yat, RU-Fyo) reported
+  `not_copied_beyond1000=0`.
+- Held on Scratch: `DK-Sor_FATES_SPINUP500` and `IT-Noe_FATES_SPINUP500_11P`. Follow-up with
+  `offload_legacy_sites.sh DK-Sor IT-Noe`.
