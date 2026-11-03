@@ -45,7 +45,7 @@ import tarfile
 import time
 import uuid
 
-VERSION = '20261102-legacy1000-v1'
+VERSION = '20261103-legacy1000-v2'
 TOKEN = 'DELETE_VERIFIED_LEGACY_SPINUP1000'
 DEFAULT_DEST = Path('/research/xclimatetbm/ly3n24/Scratch_Offload')
 DEFAULT_OUT_ROOT = Path('/scratch/ly3n24/CTSM_FATES_OUTPUTS')
@@ -97,6 +97,18 @@ def in_family(name):
 def env_start_year(env):
     s = env.get('RUN_STARTDATE', '')
     return int(s[:4]) if re.match(r'^\d{4}', s) else None
+
+
+STARTUP_REF_RE = re.compile(r'^.*<entry id="RUN_REF(?:CASE|DATE|DIR|TOD)".*$', re.M)
+
+
+def dependency_text(case):
+    """O.dependency_text, minus RUN_REF* entries of a startup run (CIME ignores them there;
+    they are only leftovers of create_clone, not a dependency)."""
+    text = O.dependency_text(case)
+    if A.read_env(case).get('RUN_TYPE', '').lower() == 'startup':
+        text = STARTUP_REF_RE.sub('', text)
+    return text
 
 
 def first1000_status(dout, start):
@@ -251,8 +263,9 @@ def build_plan(args):
             'h0a_first1000': n1000, 'complete_1000': n1000 == 1000, 'beyond_1000': beyond,
             'discard_beyond': discard, 'note': '; '.join(note),
             'case_dir': str(d['path']), 'keep_case_dir': bool(args.keep_case_dirs),
-            'rundir': str(d['out']['RUNDIR']) if d['out'].get('RUNDIR') else '',
-            'dout': str(dout) if dout else '', 'shared_exeroot_kept': shared_exe,
+            # realpath: the walked roots are resolved (/scratch -> /iridisfs/scratch), so must these be
+            'rundir': os.path.realpath(str(d['out']['RUNDIR'])) if d['out'].get('RUNDIR') else '',
+            'dout': os.path.realpath(str(dout)) if dout else '', 'shared_exeroot_kept': shared_exe,
             'delete_roots': [str(r) for r in roots] + [str(r) for r in own],
         }
         if reasons:
@@ -261,7 +274,7 @@ def build_plan(args):
             held[name] = 'no Scratch outputs found (already offloaded?)'
 
     # Dependency closure: a case referenced by any case that stays (unselected or held) stays.
-    texts = {n: O.dependency_text(info[n]['path']) for n in names}
+    texts = {n: dependency_text(info[n]['path']) for n in names}
     links = {n: O.rundir_symlink_targets(info[n]['out']['RUNDIR'])
              for n in names if info[n]['out'].get('RUNDIR')}
     changed = True
@@ -432,7 +445,7 @@ def recheck_case(entry, plan, args):
     for p in paths:
         if p.name in selected:
             continue
-        text = O.dependency_text(p)
+        text = dependency_text(p)
         if pat.search(text) or any(s in text for s in planned if s != str(case)):
             raise Stop('now referenced by remaining case ' + p.name)
         _, out, _ = O.case_outputs(p)

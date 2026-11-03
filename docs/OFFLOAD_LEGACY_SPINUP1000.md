@@ -129,5 +129,22 @@ Session `/research/xclimatetbm/ly3n24/Scratch_Offload/legacy1000_20261102T230224
 - `myfiles` after: Scratch 564/2000 GB, 702,900/1,228,800 files.
 - The four batch-6 continuation cases (DE-Tha, NL-Loo, IL-Yat, RU-Fyo) reported
   `not_copied_beyond1000=0`.
-- Held on Scratch: `DK-Sor_FATES_SPINUP500` and `IT-Noe_FATES_SPINUP500_11P`. Follow-up with
-  `offload_legacy_sites.sh DK-Sor IT-Noe`.
+- Held on Scratch: `DK-Sor_FATES_SPINUP500` and `IT-Noe_FATES_SPINUP500_11P`.
+
+**2026-11-03 06:50, `offload_legacy_sites.sh DK-Sor`.** Session
+`/research/xclimatetbm/ly3n24/Scratch_Offload/legacy1000_20261103T065003Z_e803a9ea`.
+`DK-Sor_FATES_SPINUP500` (0 h0a files left on Scratch, last restart 4421) and its dependants
+`DK-Sor_FATES_HIST1996_2024_NOAA_CO2` and `DK-Sor_FATES_HIST1996_2024_TEST`: verified=3 skipped=0,
+`CLEAN_DONE unlinked=8934 rmdir=405 kept_changed=0`. `myfiles` after: 552/2000 GB, 698,352/1,228,800 files.
+
+**Bug found in v1 (`20261102-legacy1000-v1`), fixed in v2.** The plan stored RUNDIR/DOUT_S_ROOT as
+written in env (`/scratch/...`), but the walked roots were resolved (`/iridisfs/scratch/...`), so
+the beyond-1000 rule never matched. In both sessions above, the batch-6 output beyond 1000
+years (DE-Tha, NL-Loo, IL-Yat, RU-Fyo, DK-Sor) was therefore **copied** into the tars and then deleted
+from Scratch, not discarded. Scratch result is as intended; the Research Filestore holds
+more than intended. v2 stores real paths.
+
+**v2 also:** a `RUN_REFCASE`/`RUN_REFDATE`/`RUN_REFDIR` entry of a `RUN_TYPE=startup` case is not a
+dependency (CIME ignores it; it is left over from create_clone). Example:
+`IT-Noe_B02_FIXNC_AD400_BARE34_SHRUB66_AD5` (startup, EXEROOT = shared GF-Guy bld) names
+`IT-Noe_FATES_SPINUP500_11P` only as RUN_REFCASE. Hybrid/branch references still hold.
