@@ -31,7 +31,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = '20261103-v1'
+VERSION = '20261103-v2'
 TOKEN = 'RELINK_SOURCEMODS'
 ENTRY_RE = re.compile(r'<entry\s+id="([A-Z0-9_]+)"\s+value="([^"]*)"')
 VAR_RE = re.compile(r'\$\{?([A-Z0-9_]+)\}?')
@@ -66,6 +66,19 @@ def sm_state(sm):
     if sm.exists():
         return 'NOT_A_DIR'
     return 'MISSING'
+
+
+def chain_end(link):
+    """Follow a symlink chain hop by hop; return the first path that does not exist."""
+    cur = str(link)
+    for _ in range(40):
+        if not os.path.islink(cur):
+            break
+        nxt = os.readlink(cur)
+        if not os.path.isabs(nxt):
+            nxt = os.path.join(os.path.dirname(cur), nxt)
+        cur = os.path.abspath(nxt)
+    return cur
 
 
 def active_jobs():
@@ -139,9 +152,9 @@ def main():
     print('\n== SUMMARY ==')
     for k, n in Counter(r[1] for r in rows).most_common():
         print('  {:10s} {}'.format(k, n))
-    dang = Counter(r[2] for r in rows if r[1] == 'DANGLING')
+    dang = Counter(chain_end(root / r[0] / 'SourceMods') for r in rows if r[1] == 'DANGLING')
     if dang:
-        print('\n== dangling link targets (deleted folders) ==')
+        print('\n== end of each dangling chain (the deleted folder; link_target column = first hop) ==')
         for t, n in dang.most_common():
             print('  {:4d}  {}'.format(n, t))
     hit = [r for r in rows if r[7] != 'ok' and r[6] != '-']
