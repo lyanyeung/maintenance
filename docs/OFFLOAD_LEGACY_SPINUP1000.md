@@ -152,6 +152,13 @@ verified=2 skipped=0, `CLEAN_DONE unlinked=6531 rmdir=698 kept_changed=0`. The s
 `GF-Guy_FATES_SURF2000_CO2405_1PT/bld` and its case remain. `myfiles` after: 548/2000 GB,
 692,245/1,228,800 files.
 
+**Bug found in v1/v2, fixed in v3 (`20261103-legacy1000-v3-sourcemods-links`).** The dependency
+check did not look at symlinks in remaining case folders. FIXNC cases cloned with
+`create_clone --keepexe` have `SourceMods -> <legacy source case>/SourceMods`, so deleting the
+legacy case folders left ≈208 FIXNC `SourceMods` links dangling and `case.run` failed with
+`user_xml_dir .../SourceMods/src.drv does not exist`. See
+[SOURCEMODS_DANGLING_LINKS.md](SOURCEMODS_DANGLING_LINKS.md) for the repair.
+
 **Bug found in v1 (`20261102-legacy1000-v1`), fixed in v2.** The plan stored RUNDIR/DOUT_S_ROOT as
 written in env (`/scratch/...`), but the walked roots were resolved (`/iridisfs/scratch/...`), so
 the beyond-1000 rule never matched. In both sessions above, the batch-6 output beyond 1000

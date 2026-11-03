@@ -2,6 +2,17 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
+## Scratch: dangling `SourceMods` links after the legacy offload (3 Nov 2026)
+
+[Incident and repair](docs/SOURCEMODS_DANGLING_LINKS.md) · [Python tool](scripts/check_sourcemods.py)
+
+`create_clone --keepexe` makes a clone's `SourceMods` a symlink to its source case. Deleting the
+legacy `*_FATES_SPINUP*` case folders left the FIXNC clones' links dangling, and `case.run` then
+fails in 2–3 s with `user_xml_dir .../SourceMods/src.drv does not exist`. `check_sourcemods.py`
+reports every case (read only) and, with `--fix --confirm RELINK_SOURCEMODS`, relinks dangling
+links to the executable-owner case's `SourceMods`. Both offload tools now hold any case that a
+remaining case's folder symlink passes through.
+
 ## Scratch: offload the legacy 1000-year Normal spin-ups (ICOS 6/8/11/13)
 
 [Runbook](docs/OFFLOAD_LEGACY_SPINUP1000.md) · [Python tool](scripts/offload_legacy_spinup1000.py)
@@ -11,7 +22,7 @@ Moves every `*_FATES_SPINUP500/1000*` case of the FLUXNET_MultiSite_6/8/11/13 ex
 as one verified tar per case, then deletes it from Scratch. Only the first 1000 model years are
 copied: the FLUXNET_MultiSite_6 output beyond 1000 years (1000→3000 continuation) is deleted
 without copying. Cases with live jobs and cases still referenced by a remaining case (and what
-they reference) are held. FIXNC cases and shared EXEROOTs are never touched.
+they reference, including through a case-folder symlink such as `SourceMods`, since v3) are held. FIXNC cases and shared EXEROOTs are never touched.
 `clean --confirm DELETE_VERIFIED_LEGACY_SPINUP1000`.
 
 ## Scratch: offload failed first-run FIXNC cases to the Research Filestore

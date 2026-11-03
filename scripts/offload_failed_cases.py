@@ -13,7 +13,11 @@ Never touched:
     clone sources);
   * any case another remaining case depends on: its path or name appears in that
     case's env_*.xml / user_nl_* / CaseDocs (EXEROOT --keepexe, RUN_REFDIR, finidat)
-    or a symlink in that case's RUNDIR points into it;
+    or a symlink in that case's RUNDIR points into it, or ANY hop of a top-level
+    symlink in that case's folder passes through it (create_clone --keepexe makes
+    <clone>/SourceMods -> <source case>/SourceMods; deleting the source case leaves
+    every clone's SourceMods dangling and case.run fails: "user_xml_dir
+    .../SourceMods/src.drv does not exist", see docs/SOURCEMODS_DANGLING_LINKS.md);
   * the case directory itself (it is archived, but stays on Scratch for create_clone);
   * DE-Tha / NL-Loo protected examples (unless named with --sites).
 
@@ -50,7 +54,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-VERSION = '20261102-v2'
+VERSION = '20261103-v3-sourcemods-links'
 TOKEN = 'DELETE_VERIFIED_SCRATCH_OUTPUTS'
 DEFAULT_DEST = Path('/research/xclimatetbm/ly3n24/Scratch_Offload')
 DEFAULT_SCRATCH_ROOTS = ('/iridisfs/scratch/ly3n24', '/scratch/ly3n24')
@@ -154,6 +158,34 @@ def rundir_symlink_targets(rundir):
     return targets
 
 
+def case_symlink_hops(case):
+    """Every hop of every top-level symlink in a case folder, as absolute paths whose
+    parent directory is resolved (the hop itself is NOT followed). Example:
+    C/SourceMods -> B/SourceMods -> A/SourceMods gives [B/SourceMods, A/SourceMods];
+    deleting B or A leaves C/SourceMods dangling, even though realpath() only shows A."""
+    hops = []
+    try:
+        with os.scandir(str(case)) as it:
+            links = [e.path for e in it if e.is_symlink()]
+    except OSError:
+        return hops
+    for cur in links:
+        for _ in range(40):
+            if not os.path.islink(cur):
+                break
+            try:
+                nxt = os.readlink(cur)
+            except OSError:
+                break
+            if not os.path.isabs(nxt):
+                nxt = os.path.join(os.path.dirname(cur), nxt)
+            nxt = os.path.abspath(nxt)
+            hop = Path(os.path.realpath(os.path.dirname(nxt))) / os.path.basename(nxt)
+            hops.append(hop)
+            cur = str(hop)
+    return hops
+
+
 def inventory(root):
     files = dirs = links = nbytes = 0
     for folder, dnames, fnames in os.walk(str(root), followlinks=False):
@@ -221,6 +253,7 @@ def build_plan(args):
     other_text = {n: dependency_text(info[n]['path']) for n in others}
     other_links = {n: rundir_symlink_targets(info[n]['out']['RUNDIR'])
                    for n in others if info[n]['out'].get('RUNDIR')}
+    other_hops = {n: case_symlink_hops(info[n]['path']) for n in others}
     all_case_dirs = {n: info[n]['path'] for n in info}
     plan_cases = []
     for name in candidates:
@@ -260,6 +293,10 @@ def build_plan(args):
             for t in other_links.get(other, []):
                 if any(is_within(t, r) for r in roots):
                     reasons.append('RUNDIR symlink of {} points into {}'.format(other, t))
+                    break
+            for h in other_hops.get(other, []):
+                if any(is_within(h, r) for r in roots):
+                    reasons.append('case-folder symlink of {} passes through {}'.format(other, h))
                     break
         if reasons:
             held.append((name, 'DEPENDENCY/PATH: ' + '; '.join(sorted(set(reasons))[:4])))
@@ -507,6 +544,9 @@ def recheck_case(entry, plan, args):
             for t in rundir_symlink_targets(out['RUNDIR']):
                 if any(is_within(t, Path(s)) for s in planned):
                     raise Stop('RUNDIR symlink of {} points into {}'.format(p.name, t))
+        for h in case_symlink_hops(p):
+            if any(is_within(h, Path(s)) for s in planned):
+                raise Stop('case-folder symlink of {} passes through {}'.format(p.name, h))
 
 
 def load_plan(path):

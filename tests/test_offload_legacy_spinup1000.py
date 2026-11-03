@@ -100,6 +100,38 @@ class LegacyOffloadTest(unittest.TestCase):
                      'OUT/archive/CH-Aws_FATES_SPINUP1000_RH34A'):
             self.assertTrue((self.S / kept).exists(), kept)
 
+    def test_sourcemods_link_holds_clone_source(self):
+        """create_clone --keepexe: <clone>/SourceMods -> <source>/SourceMods. The source case
+        must be held, or every clone's case.run fails (user_xml_dir .../src.drv missing)."""
+        self.mk('FI-Sod_FATES_SPINUP500', 2001, 2010, 2011)
+        src = self.CR / 'FI-Sod_FATES_SPINUP500/SourceMods/src.drv'
+        src.mkdir(parents=True)
+        os.symlink(str(src.parent), str(self.CR / 'FI-Sod_B01_FIXNC_AD400/SourceMods'))
+        old = time.time() - 86400
+        for root, ds, fs in os.walk(str(self.R)):
+            for x in ds + fs:
+                os.utime(os.path.join(root, x), (old, old), follow_symlinks=False)
+        out = self.run_tool('plan')
+        line = [l for l in out.splitlines() if l.startswith('HELD\tFI-Sod_FATES_SPINUP500\t')]
+        self.assertTrue(line, out)
+        self.assertIn('case-folder symlink of FI-Sod_B01_FIXNC_AD400', line[0])
+
+    def test_symlink_hops_see_intermediate_case(self):
+        """C -> B/SourceMods -> A/SourceMods: deleting B also breaks C, so B is a hop."""
+        sys.path.insert(0, str(TOOL.parent))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('ofc', str(TOOL.parent / 'offload_failed_cases.py'))
+        O = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(O)
+        for n in 'ABC':
+            (self.CR / n).mkdir()
+        (self.CR / 'A/SourceMods').mkdir()
+        os.symlink(str(self.CR / 'A/SourceMods'), str(self.CR / 'B/SourceMods'))
+        os.symlink('../B/SourceMods', str(self.CR / 'C/SourceMods'))
+        hops = O.case_symlink_hops(self.CR / 'C')
+        real = Path(os.path.realpath(str(self.CR)))
+        self.assertEqual(hops, [real / 'B/SourceMods', real / 'A/SourceMods'])
+
 
 if __name__ == '__main__':
     unittest.main()

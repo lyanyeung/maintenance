@@ -20,7 +20,9 @@ What happens to each selected case
 
 Held (not touched): a case with a live/recent Slurm job, a Git lock, recent writes or no
 CaseStatus; any case that a remaining case still references (env_*.xml, user_nl_*, CaseDocs,
-RUNDIR symlinks), and any case that a held case references (repeated until stable);
+RUNDIR symlinks, any hop of a top-level case-folder symlink such as the SourceMods link
+that create_clone --keepexe makes), and any case that a held case references (repeated
+until stable);
 a shared EXEROOT whose path does not name the case.
 
 Modes (one step at a time, nothing is deleted before `clean`):
@@ -45,7 +47,7 @@ import tarfile
 import time
 import uuid
 
-VERSION = '20261103-legacy1000-v2'
+VERSION = '20261103-legacy1000-v3-sourcemods-links'
 TOKEN = 'DELETE_VERIFIED_LEGACY_SPINUP1000'
 DEFAULT_DEST = Path('/research/xclimatetbm/ly3n24/Scratch_Offload')
 DEFAULT_OUT_ROOT = Path('/scratch/ly3n24/CTSM_FATES_OUTPUTS')
@@ -277,6 +279,7 @@ def build_plan(args):
     texts = {n: dependency_text(info[n]['path']) for n in names}
     links = {n: O.rundir_symlink_targets(info[n]['out']['RUNDIR'])
              for n in names if info[n]['out'].get('RUNDIR')}
+    hops = {n: O.case_symlink_hops(info[n]['path']) for n in names}
     changed = True
     while changed:
         changed = False
@@ -293,6 +296,8 @@ def build_plan(args):
                     held[name] = 'DEPENDENCY: referenced by remaining case ' + other
                 elif any(any(is_within(t, Path(s)) for s in rs) for t in links.get(other, [])):
                     held[name] = 'DEPENDENCY: RUNDIR symlink of {} points into it'.format(other)
+                elif any(any(is_within(h, Path(s)) for s in rs) for h in hops.get(other, [])):
+                    held[name] = 'DEPENDENCY: case-folder symlink of {} (e.g. SourceMods) passes through it'.format(other)
                 if name in held:
                     changed = True
                     break
@@ -453,6 +458,9 @@ def recheck_case(entry, plan, args):
             for t in O.rundir_symlink_targets(out['RUNDIR']):
                 if any(is_within(t, Path(s)) for s in planned):
                     raise Stop('RUNDIR symlink of {} points into {}'.format(p.name, t))
+        for h in O.case_symlink_hops(p):
+            if any(is_within(h, Path(s)) for s in planned):
+                raise Stop('case-folder symlink of {} passes through {}'.format(p.name, h))
 
 
 def load_plan(path):
