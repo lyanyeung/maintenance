@@ -11,7 +11,7 @@
 #   bash diagnose_failed_chains.sh                  # all DependencyNeverSatisfied jobs
 #   bash diagnose_failed_chains.sh 4820160 CASE ... # specific st_archive/run job ids or case names
 # Run it as a separate process with output in a file, so a dropped SSH session loses nothing:
-#   setsid bash ~/maintenance/scripts/diagnose_failed_chains.sh > ~/diag_chains.txt 2>&1 < /dev/null; cat ~/diag_chains.txt
+#   setsid -w bash ~/maintenance/scripts/diagnose_failed_chains.sh > ~/diag_chains.txt 2>&1 < /dev/null; cat ~/diag_chains.txt
 #
 # Every command has a timeout and no command's failure stops the script (no set -e).
 

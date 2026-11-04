@@ -13,7 +13,7 @@ MODEL_ERROR, START_FAILURE) with the next step.
 
 ```bash
 cd ~/maintenance && git pull
-setsid bash scripts/diagnose_failed_chains.sh > ~/diag_chains.txt 2>&1 < /dev/null; cat ~/diag_chains.txt
+setsid -w bash scripts/diagnose_failed_chains.sh > ~/diag_chains.txt 2>&1 < /dev/null; cat ~/diag_chains.txt
 ```
 
 ## Scratch: dangling `SourceMods` links after the legacy offload (3 Nov 2026)
