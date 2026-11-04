@@ -15,11 +15,14 @@
 #
 # Every command has a timeout and no command's failure stops the script (no set -e).
 
-VERSION=20261104-v1
+VERSION=20261104-v2
 CR=${CASES_ROOT:-/iridisfs/scratch/ly3n24/CLM_FATES/cases}
 U=${USER:-$(whoami)}
 T=timeout
-ERR_RE='ENDRUN|abort|ERROR|error:|NaN|nan |SIGSEGV|SIGBUS|segmentation|floating|balance|negative|MPI_ABORT|forrtl|Killed|out of memory|oom|DUE TO TIME LIMIT|CANCELLED'
+ERR_RE='ENDRUN|abort|ERROR|error:|allocation error|NaN|nan |SIGSEGV|SIGBUS|segmentation|floating|balance|negative|MPI_ABORT|forrtl|Killed|out of memory|oom|Resource temporarily|DUE TO TIME LIMIT|CANCELLED'
+
+# lines that look alarming but are normal start-up output
+BENIGN_RE='checked for NaN values|preset to nan|negative Rdark|Skip balance checking|error_?(code|stat)? *= *0|errors? *: *0|no error'
 
 hr() { printf '%s\n' "------------------------------------------------------------------------"; }
 xq() { (cd "$1" && $T 120 ./xmlquery --value "$2" 2>/dev/null); }
@@ -125,7 +128,7 @@ for w in "${WORK[@]}"; do
       echo "== $(basename "$f")  ($(stat -c %s "$f" 2>/dev/null) bytes)"
       case "$f" in *.gz) rd_cmd="zcat";; *) rd_cmd="cat";; esac
       echo "   error lines:"
-      $T 60 $rd_cmd "$f" 2>/dev/null | grep -nE "$ERR_RE" | grep -viE 'error_?(code|stat)? *= *0|errors? *: *0|no error' | tail -12 | sed 's/^/     /'
+      $T 60 $rd_cmd "$f" 2>/dev/null | grep -nE "$ERR_RE" | grep -vE "$BENIGN_RE" | tail -12 | sed 's/^/     /'
       case "$f" in */cesm.log.*|*/lnd.log.*)
         echo "   tail:"; $T 60 $rd_cmd "$f" 2>/dev/null | tail -n 15 | sed 's/^/     /';;
       esac
@@ -133,10 +136,12 @@ for w in "${WORK[@]}"; do
   fi
 
   # ---- verdict
-  alltext=$( { [ -n "$jl" ] && $T 20 tail -n 200 "$jl"; for f in $logs; do $T 60 tail -n 400 "$f"; done; } 2>/dev/null )
+  alltext=$( { [ -n "$jl" ] && $T 20 tail -n 200 "$jl"; for f in $logs; do $T 60 tail -n 400 "$f"; done; } 2>/dev/null | grep -vE "$BENIGN_RE" )
   secs=$(awk -F'[-:]' '{ if (NF==4) print $1*86400+$2*3600+$3*60+$4; else if (NF==3) print $1*3600+$2*60+$3; else print 0 }' <<<"${el:-0:0:0}")
   if [[ $st == NODE_FAIL* || $st == BOOT_FAIL* ]]; then
     verdict=NODE_FAILURE; next="infrastructure: bash resume_failed_segment.sh $c (check), then --submit"
+  elif grep -qE 'allocation error|pthread_create error|Resource temporarily unavailable|Cannot allocate memory|DUE to SIGNAL Killed' <<<"$alltext"; then
+    verdict=NODE_RESOURCE_FAILURE; next="node ran out of memory/threads during start-up (not the model): bash resume_failed_segment.sh $c (check), then --submit; if the same node repeats, report it to HPC support"
   elif [[ $st == TIMEOUT* ]] || grep -q 'DUE TO TIME LIMIT' <<<"$alltext"; then
     verdict=WALLCLOCK_TIMEOUT; next="segment did not fit in ${wc:-?}: slow node or slow site; resume, and raise JOB_WALLCLOCK_TIME if it repeats"
   elif [[ $st == CANCELLED* ]]; then
