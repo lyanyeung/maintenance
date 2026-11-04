@@ -2,6 +2,20 @@
 
 This repository contains reusable scripts for maintaining the IRIDIS6 Home directory. **GitHub stores maintenance code and documentation only. Research data, model outputs, logs, archive files, and verification manifests must be kept on the Southampton Research Filestore and must never be committed to this public repository.**
 
+## Diagnose broken run chains (`DependencyNeverSatisfied`)
+
+[Shell tool](scripts/diagnose_failed_chains.sh), read only. For every `st_archive` stuck in
+`DependencyNeverSatisfied` (or given case names / job ids) it prints the run job's Slurm state,
+CaseStatus, RESUBMIT/CONTINUE_RUN, latest archived restart vs `rpointer.lnd`, the batch log, the
+error lines and tail of the `cesm.log`/`lnd.log` that run wrote, and a VERDICT (NODE_FAILURE,
+WALLCLOCK_TIMEOUT, CANCELLED, OUT_OF_MEMORY, SOURCEMODS_DANGLING, NAMELIST_REGENERATED,
+MODEL_ERROR, START_FAILURE) with the next step.
+
+```bash
+cd ~/maintenance && git pull
+setsid bash scripts/diagnose_failed_chains.sh > ~/diag_chains.txt 2>&1 < /dev/null; cat ~/diag_chains.txt
+```
+
 ## Scratch: dangling `SourceMods` links after the legacy offload (3 Nov 2026)
 
 [Incident and repair](docs/SOURCEMODS_DANGLING_LINKS.md) · [Python tool](scripts/check_sourcemods.py)
