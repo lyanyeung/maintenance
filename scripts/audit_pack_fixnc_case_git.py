@@ -40,7 +40,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-VERSION = '20261102-v2'
+VERSION = '20261104-v3'
 DEFAULT_ROOT = Path('/iridisfs/scratch/ly3n24/CLM_FATES/cases')
 
 # Site manifests: Non-Competition-CLM-experiment README / examples (Nov 2026)
@@ -114,10 +114,10 @@ def classify(name):
         return 'OTHER', ''
     site, rest = m.group('site'), m.group('rest')
     # Batch tag may carry a suffix, e.g. AMF_B01SIX_FIXNC_ (AmeriFlux Batch01 six-input cases)
-    tag = re.match(r'^(AMF_)?(?:(B0[1-5])[A-Za-z0-9]*_)?FIXNC_', rest)
+    tag = re.match(r'^(AMF_|ICOS_)?(?:(B0[1-5])[A-Za-z0-9]*_)?FIXNC_', rest)
     if not tag:
         return 'OTHER', ''
-    if tag.group(1):
+    if tag.group(1) == 'AMF_':
         batch = tag.group(2) or 'B01'
         sites = AMF.get(batch, [])
         return 'AMF_' + batch, '' if site in sites else 'SITE_NOT_IN_MANIFEST'
@@ -419,7 +419,8 @@ def survey(args):
     rows = []
     for p in paths:
         cohort, note = classify(p.name)
-        detailed = cohort in args.cohorts or p.name in (args.cases or [])
+        detailed = (cohort in args.cohorts or p.name in (args.cases or [])
+                    or (args.name_re is not None and args.name_re.search(p.name) and not cohort.startswith('LEGACY')))
         if detailed:
             info, g = evaluate(p, cohort, note, related[p.name], args.quiet_minutes, queue_ok, args.measure)
         else:
@@ -433,7 +434,7 @@ def survey(args):
 def pack_decision(info, g, args):
     """Return 'WOULD_PACK' or a SKIP reason."""
     cohort = info['cohort']
-    explicit = info['case'] in (args.cases or [])
+    explicit = info['case'] in (args.cases or []) or bool(args.name_re and args.name_re.search(info['case']))
     if cohort.startswith('LEGACY'):
         return 'SKIP_LEGACY_USE_pack_four_batch_case_git.py'
     if cohort in ('PROTECTED_EXAMPLE', 'OTHER') and not explicit:
@@ -649,6 +650,9 @@ def main(argv=None):
                         help='Restrict detailed evaluation/packing (repeatable). Default: all ICOS_B01-04 + AMF_B01-05')
     parser.add_argument('--case', action='append', dest='cases',
                         help='Exact case name(s) to evaluate/pack; also allows PROTECTED_EXAMPLE/OTHER cases')
+    parser.add_argument('--name-regex', default=None,
+                        help="Evaluate/pack cases whose name matches this regex (any FIXNC cohort, incl. protected "
+                             "examples; never legacy), e.g. '_AD400.*_(NLF|NLFP|PHEN|HINONE)$'")
     parser.add_argument('--include-idle', action='store_true',
                         help='Also pack idle-but-unfinished cases (STOPPED_SHORT, STALLED, ERROR, ...). Default: DONE only')
     parser.add_argument('--min-loose', type=int, default=200,
@@ -661,9 +665,8 @@ def main(argv=None):
     parser.add_argument('--measure', action='store_true',
                         help='audit: also count entries in case dir, RUNDIR, EXEROOT(bld), archive (slower; read-only)')
     args = parser.parse_args(argv)
-    args.cohorts = args.cohort_list or ([] if args.cases else SCOPED)
-    if args.cases and args.cohort_list is None:
-        args.cohorts = []
+    args.name_re = re.compile(args.name_regex) if args.name_regex else None
+    args.cohorts = args.cohort_list or ([] if (args.cases or args.name_re) else SCOPED)
     try:
         if args.mode == 'audit':
             root, rows, jobs, unknown, queue_ok, queue_error, skipped = survey(args)

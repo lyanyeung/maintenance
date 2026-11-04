@@ -95,3 +95,18 @@ myfiles
 ```
 
 Nothing in this repository proves that cleanup ran on IRIDIS; use `myfiles`.
+
+## Only the AD400 reruns (needleleaf `_NLF`/`_NLFP`, phenology `_PHEN`, US-Aud `_HINONE`)
+
+`--name-regex` evaluates and packs only cases whose name matches, in any FIXNC cohort including
+`ICOS_B04` and the DE-Tha example (never legacy). The NORMAL400 cases do not match and are not touched.
+
+```bash
+RX='_AD400.*_(NLF|NLFP|PHEN|HINONE)$'
+"$PYEXE" -B "$TOOL" audit --name-regex "$RX"      # read only: which reruns finished AD400
+sbatch ... --wrap="'$PYEXE' -B '$TOOL' run --name-regex '$RX'"
+```
+
+Packing changes only that AD case's `.git`. The NORMAL400 case reads the AD case's archived restart
+(`RUN_REFDIR`) and its CaseDocs/user_nl/streams, and none of these change.
+Cancelled `_NLF` cases (replaced by `_NLFP`) show as `STOPPED_SHORT`. Add `--include-idle` to pack them too.
